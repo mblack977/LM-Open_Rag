@@ -7,32 +7,36 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
   rag-api:
     build: .
     ports:
-      - "8000:8000"
+      - "8010:8000"
     environment:
       QDRANT_URL: "http://qdrant:6333"
-      # LM Studio is running on the host. On Windows/macOS, host.docker.internal resolves to the host machine.
-      LM_STUDIO_BASE_URL: "${LM_STUDIO_BASE_URL:-http://host.docker.internal:1234/v1}"
-      LM_STUDIO_EMBEDDING_MODEL: "${LM_STUDIO_EMBEDDING_MODEL:-text-embedding-mxbai-embed-large-v1}"
-      LM_STUDIO_MODEL: "${LM_STUDIO_MODEL:-qwen2.5-7b-instruct-uncensored}"
+      SUPABASE_URL: "${SUPABASE_URL:-http://host.docker.internal:8000}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
+      DROP_FOLDER_PATH: "${DROP_FOLDER_PATH:-/herb_files}"
+      # Ollama for embeddings and LLM
+      LM_STUDIO_BASE_URL: "${LM_STUDIO_BASE_URL:-http://ollama:11434/v1}"
+      LM_STUDIO_EMBEDDING_MODEL: "${LM_STUDIO_EMBEDDING_MODEL:-mxbai-embed-large}"
+      LM_STUDIO_MODEL: "${LM_STUDIO_MODEL:-qwen2.5:7b}"
       LM_STUDIO_TIMEOUT_SECONDS: "${LM_STUDIO_TIMEOUT_SECONDS:-300}"
-      LM_STUDIO_EMBEDDING_BATCH_SIZE: "${LM_STUDIO_EMBEDDING_BATCH_SIZE:-1}"
+      LM_STUDIO_EMBEDDING_BATCH_SIZE: "${LM_STUDIO_EMBEDDING_BATCH_SIZE:-16}"
     volumes:
       - ./data:/app/data
+      - "C:/HerbData/Herb_files:/herb_files"
     depends_on:
       - qdrant
-
-  open-webui:
-    image: ghcr.io/open-webui/open-webui:main
-    ports:
-      - "3000:8080"
-    volumes:
-      - open_webui_data:/app/backend/data
-    depends_on:
-      - rag-api
+      - ollama
 
 volumes:
-  open_webui_data:
   qdrant_storage:
+  ollama_data:

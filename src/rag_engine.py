@@ -115,7 +115,22 @@ class RAGEngine:
 
         if progress_cb:
             progress_cb("completed", total_points, total_points, "Completed")
-        return {"doc_id": doc_id, "chunks": len(points), "filename": metadata.get("filename")}
+
+        chunk_texts: List[str] = []
+        try:
+            chunk_texts = [c.get("text") for c in chunks if isinstance(c, dict) and isinstance(c.get("text"), str)]
+        except Exception:
+            chunk_texts = []
+
+        return {
+            "doc_id": doc_id,
+            "chunks": len(points),
+            "filename": metadata.get("filename"),
+            "processed": {
+                "metadata": metadata,
+                "chunk_texts": chunk_texts,
+            },
+        }
 
     async def query(
         self,
