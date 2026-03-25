@@ -477,6 +477,24 @@ async def list_collections():
         raise HTTPException(status_code=500, detail=f"Error listing collections: {str(e)}")
 
 
+@app.post("/create_collection")
+async def create_collection(payload: Dict[str, Any]):
+    try:
+        collection = payload.get("collection", "").strip()
+        if not collection:
+            raise HTTPException(status_code=400, detail="Collection name is required")
+        
+        vector_size = embedding_generator.dimension
+        await vector_store.ensure_collection(collection, vector_size)
+        
+        return {"status": "success", "collection": collection, "message": f"Collection '{collection}' created successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating collection: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating collection: {str(e)}")
+
+
 @app.get("/v1/models")
 async def openai_list_models():
     try:

@@ -234,11 +234,30 @@ function wireEvents() {
     setActiveCollection(v);
   });
 
-  el("useNewCollection").addEventListener("click", () => {
+  el("createCollection").addEventListener("click", async () => {
     const v = el("newCollection").value.trim();
     if (!v) return;
-    setActiveCollection(v);
-    el("collectionSelect").value = "";
+    
+    const btn = el("createCollection");
+    btn.disabled = true;
+    try {
+      const resp = await fetch("/create_collection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ collection: v })
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || "Failed to create collection");
+      
+      await loadCollections();
+      setActiveCollection(v);
+      el("collectionSelect").value = v;
+      el("newCollection").value = "";
+    } catch (err) {
+      alert(`Error creating collection: ${err.message}`);
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   el("uploadForm").addEventListener("submit", async (e) => {
