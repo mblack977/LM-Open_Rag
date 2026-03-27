@@ -1016,4 +1016,4 @@ async def health_check():
 
 if __name__ == "__main__":
     reload_enabled = (os.getenv("UVICORN_RELOAD") or "").strip() == "1"
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=reload_enabled)
+    uvicorn.run("main:app", host="0.0.0.0", port=8010, reload=reload_enabled)

@@ -4,6 +4,21 @@ const state = {
   collection: "",
 };
 
+// Modal Management
+function openModal(modalId) {
+  const modal = el(modalId);
+  if (modal) {
+    modal.style.display = "flex";
+  }
+}
+
+function closeModal(modalId) {
+  const modal = el(modalId);
+  if (modal) {
+    modal.style.display = "none";
+  }
+}
+
 function setStatus(text) {
   el("uploadStatus").textContent = text || "";
 }
@@ -33,13 +48,25 @@ function setProgress(stage, current, total, message, logs) {
 
 function setActiveCollection(name) {
   state.collection = name;
-  el("activeCollection").textContent = name ? `Active collection: ${name}` : "No collection selected";
+}
+
+function clearWelcome() {
+  const welcome = document.querySelector(".welcome");
+  if (welcome) {
+    welcome.remove();
+  }
 }
 
 function addMessage(role, text, meta) {
+  clearWelcome();
+  
   const wrap = document.createElement("div");
-  wrap.className = `msg ${role === "user" ? "msg--user" : "msg--assistant"}`;
-  wrap.textContent = text;
+  wrap.className = `msg msg--${role}`;
+  
+  const content = document.createElement("div");
+  content.className = "msg__content";
+  content.textContent = text;
+  wrap.appendChild(content);
 
   if (meta) {
     const m = document.createElement("div");
@@ -67,13 +94,12 @@ async function loadCollections() {
   try {
     cols = await fetchCollections();
   } catch (e) {
-    // If Qdrant isn't reachable, show empty.
     cols = [];
   }
 
   const placeholder = document.createElement("option");
   placeholder.value = "";
-  placeholder.textContent = cols.length ? "Select collection" : "No collections (create/use one below)";
+  placeholder.textContent = cols.length ? "Select collection" : "No collections";
   select.appendChild(placeholder);
 
   for (const c of cols) {
@@ -83,15 +109,50 @@ async function loadCollections() {
     select.appendChild(opt);
   }
 
-  // Keep current selection if possible
   if (state.collection && cols.includes(state.collection)) {
     select.value = state.collection;
-  } else if (!state.collection && cols.includes("MTSS_articles")) {
-    select.value = "MTSS_articles";
-    setActiveCollection("MTSS_articles");
-  } else if (!state.collection && cols.includes("MTSS")) {
-    select.value = "MTSS";
-    setActiveCollection("MTSS");
+  }
+  
+  return cols;
+}
+
+async function loadCollectionsList() {
+  const container = el("collectionsList");
+  if (!container) return;
+  
+  container.innerHTML = "";
+  
+  try {
+    const cols = await fetchCollections();
+    
+    if (!cols.length) {
+      container.innerHTML = '<p class="status">No collections found</p>';
+      return;
+    }
+    
+    for (const c of cols) {
+      const card = document.createElement("div");
+      card.className = "collection-card";
+      if (c === state.collection) {
+        card.classList.add("active");
+      }
+      
+      const name = document.createElement("div");
+      name.className = "collection-card__name";
+      name.textContent = c;
+      card.appendChild(name);
+      
+      card.addEventListener("click", () => {
+        state.collection = c;
+        el("collectionSelect").value = c;
+        document.querySelectorAll(".collection-card").forEach(el => el.classList.remove("active"));
+        card.classList.add("active");
+      });
+      
+      container.appendChild(card);
+    }
+  } catch (e) {
+    container.innerHTML = `<p class="status">Error loading collections: ${e.message}</p>`;
   }
 }
 
@@ -201,7 +262,7 @@ function renderDocs(docs) {
     actions.className = "doc__actions";
 
     const del = document.createElement("button");
-    del.className = "btn btn--ghost";
+    del.className = "btn btn-secondary";
     del.textContent = "Delete";
     del.onclick = async () => {
       del.disabled = true;
@@ -225,15 +286,54 @@ function renderDocs(docs) {
 }
 
 function wireEvents() {
-  el("refreshCollections").addEventListener("click", async () => {
-    await loadCollections();
+  // New chat button
+  el("newChatBtn").addEventListener("click", () => {
+    el("messages").innerHTML = '<div class="welcome"><h1>What can I help with?</h1></div>';
   });
 
+  // Collection select
   el("collectionSelect").addEventListener("change", () => {
     const v = el("collectionSelect").value;
     setActiveCollection(v);
   });
 
+  // Open file manager modal
+  el("openFileManagerBtn").addEventListener("click", () => {
+    openModal("fileManagerModal");
+  });
+
+  // Close file manager modal
+  el("closeFileManagerBtn").addEventListener("click", () => {
+    closeModal("fileManagerModal");
+  });
+
+  // Attach button (opens file manager)
+  el("attachBtn").addEventListener("click", () => {
+    openModal("fileManagerModal");
+  });
+
+  // Open collections modal
+  el("manageCollectionsBtn").addEventListener("click", async () => {
+    openModal("collectionsModal");
+    await loadCollectionsList();
+  });
+
+  // Close collections modal
+  el("closeCollectionsBtn").addEventListener("click", () => {
+    closeModal("collectionsModal");
+  });
+
+  // Close modals when clicking overlay
+  document.querySelectorAll(".modal__overlay").forEach(overlay => {
+    overlay.addEventListener("click", (e) => {
+      const modal = e.target.closest(".modal");
+      if (modal) {
+        modal.style.display = "none";
+      }
+    });
+  });
+
+  // Create collection
   el("createCollection").addEventListener("click", async () => {
     const v = el("newCollection").value.trim();
     if (!v) return;
@@ -250,6 +350,7 @@ function wireEvents() {
       if (!resp.ok) throw new Error(data.detail || "Failed to create collection");
       
       await loadCollections();
+      await loadCollectionsList();
       setActiveCollection(v);
       el("collectionSelect").value = v;
       el("newCollection").value = "";
@@ -260,6 +361,7 @@ function wireEvents() {
     }
   });
 
+  // Upload form
   el("uploadForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = el("fileInput").files[0];
@@ -277,11 +379,10 @@ function wireEvents() {
       setStatus(`Done. Indexed ${result.chunks || ""} chunks.`.trim());
     } catch (err) {
       setStatus(`Error: ${err.message}`);
-    } finally {
-      // Keep progress visible so user can read logs
     }
   });
 
+  // Load documents
   el("loadDocs").addEventListener("click", async () => {
     try {
       const docs = await loadDocuments();
@@ -291,6 +392,7 @@ function wireEvents() {
     }
   });
 
+  // Chat form
   el("chatForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const text = el("chatInput").value.trim();
@@ -311,14 +413,28 @@ function wireEvents() {
         ? `Sources: ${sources.slice(0, 3).map(s => `${s.filename || s.doc_id}#${s.chunk_index}`).join(", ")}`
         : "Sources: none";
 
-      thinking.textContent = answer;
-      const metaDiv = document.createElement("div");
-      metaDiv.className = "msg__meta";
+      const content = thinking.querySelector(".msg__content");
+      if (content) {
+        content.textContent = answer;
+      }
+      
+      let metaDiv = thinking.querySelector(".msg__meta");
+      if (!metaDiv) {
+        metaDiv = document.createElement("div");
+        metaDiv.className = "msg__meta";
+        thinking.appendChild(metaDiv);
+      }
       metaDiv.textContent = sourceMeta;
-      thinking.appendChild(metaDiv);
     } catch (err) {
       addMessage("assistant", `Error: ${err.message}`);
     }
+  });
+
+  // Auto-resize textarea
+  const textarea = el("chatInput");
+  textarea.addEventListener("input", () => {
+    textarea.style.height = "auto";
+    textarea.style.height = Math.min(textarea.scrollHeight, 200) + "px";
   });
 }
 

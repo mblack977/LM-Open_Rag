@@ -4,74 +4,150 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Local RAG</title>
-  <link rel="stylesheet" href="/static/styles.css?v=2" />
+  <link rel="stylesheet" href="/static/styles.css?v=3" />
 </head>
 <body>
   <div class="app">
+    <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar__header">
-        <div class="brand">Local RAG</div>
+        <button id="newChatBtn" class="btn-new-chat">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          New chat
+        </button>
       </div>
 
-      <div class="sidebar__section">
-        <div class="label">Collection (topic)</div>
-        <div class="row">
-          <select id="collectionSelect" class="select"></select>
-          <button id="refreshCollections" class="btn btn--ghost" title="Refresh">↻</button>
+      <div class="sidebar__content">
+        <div class="sidebar__section">
+          <div class="section-title">Collection</div>
+          <select id="collectionSelect" class="select-minimal"></select>
+          <button id="manageCollectionsBtn" class="link-btn">Manage collections</button>
         </div>
-        <div class="row">
-          <input id="newCollection" class="input" placeholder="New collection name" />
-          <button id="createCollection" class="btn">Create Collection</button>
-        </div>
-        <div class="hint">Collections map to Qdrant collections.</div>
-      </div>
 
-      <div class="sidebar__section">
-        <div class="label">Upload file to selected collection</div>
-        <form id="uploadForm" class="upload">
-          <input id="fileInput" type="file" class="file" />
-          <button class="btn" type="submit">Upload & Index</button>
-        </form>
-        <div id="uploadStatus" class="status"></div>
-        <div id="uploadProgressWrap" class="progress" style="display:none;">
-          <div class="progress__row">
-            <div id="uploadProgressText" class="progress__text"></div>
-            <div id="uploadProgressPct" class="progress__pct"></div>
-          </div>
-          <div class="progress__bar">
-            <div id="uploadProgressBar" class="progress__barFill" style="width:0%;"></div>
-          </div>
-          <div id="uploadLogs" class="logs"></div>
-        </div>
-      </div>
+        <div class="sidebar__divider"></div>
 
-      <div class="sidebar__section">
-        <div class="label">Documents</div>
-        <button id="loadDocs" class="btn btn--ghost">Load documents</button>
-        <div id="docs" class="docs"></div>
+        <div class="sidebar__section">
+          <button id="openFileManagerBtn" class="link-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            Upload & manage files
+          </button>
+        </div>
       </div>
 
       <div class="sidebar__footer">
-        <div class="pill">Qdrant: http://localhost:6333</div>
-        <div class="pill">LM Studio: http://localhost:1234/v1</div>
+        <div class="footer-info">Local RAG System</div>
       </div>
     </aside>
 
+    <!-- Main Chat Area -->
     <main class="chat">
-      <div class="chat__header">
-        <div class="chat__title">Chat</div>
-        <div id="activeCollection" class="chat__subtitle"></div>
+      <div class="chat__container">
+        <div id="messages" class="messages">
+          <div class="welcome">
+            <h1>What can I help with?</h1>
+          </div>
+        </div>
+
+        <div class="composer-wrapper">
+          <form id="chatForm" class="composer">
+            <div class="composer__inner">
+              <button type="button" id="attachBtn" class="composer__attach" title="Attach file">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                </svg>
+              </button>
+              <textarea id="chatInput" class="composer__input" placeholder="Message ChatGPT" rows="1"></textarea>
+              <button id="sendBtn" class="composer__send" type="submit">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                </svg>
+              </button>
+            </div>
+          </form>
+          <div class="composer__footer">ChatGPT can make mistakes. Check important info.</div>
+        </div>
       </div>
-
-      <div id="messages" class="messages"></div>
-
-      <form id="chatForm" class="composer">
-        <textarea id="chatInput" class="composer__input" placeholder="Ask a question..." rows="2"></textarea>
-        <button id="sendBtn" class="btn composer__send" type="submit">Send</button>
-      </form>
     </main>
+
+    <!-- File Manager Modal -->
+    <div id="fileManagerModal" class="modal" style="display:none;">
+      <div class="modal__overlay"></div>
+      <div class="modal__content">
+        <div class="modal__header">
+          <h2>File Manager</h2>
+          <button id="closeFileManagerBtn" class="modal__close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal__body">
+          <div class="upload-section">
+            <h3>Upload File</h3>
+            <form id="uploadForm" class="upload-form">
+              <input id="fileInput" type="file" class="file-input" />
+              <button class="btn btn-primary" type="submit">Upload & Index</button>
+            </form>
+            <div id="uploadStatus" class="status"></div>
+            <div id="uploadProgressWrap" class="progress" style="display:none;">
+              <div class="progress__row">
+                <div id="uploadProgressText" class="progress__text"></div>
+                <div id="uploadProgressPct" class="progress__pct"></div>
+              </div>
+              <div class="progress__bar">
+                <div id="uploadProgressBar" class="progress__barFill" style="width:0%;"></div>
+              </div>
+              <div id="uploadLogs" class="logs"></div>
+            </div>
+          </div>
+
+          <div class="documents-section">
+            <h3>Documents</h3>
+            <button id="loadDocs" class="btn btn-secondary">Load documents</button>
+            <div id="docs" class="docs"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Collections Manager Modal -->
+    <div id="collectionsModal" class="modal" style="display:none;">
+      <div class="modal__overlay"></div>
+      <div class="modal__content">
+        <div class="modal__header">
+          <h2>Manage Collections</h2>
+          <button id="closeCollectionsBtn" class="modal__close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal__body">
+          <div class="collections-list">
+            <h3>Available Collections</h3>
+            <div id="collectionsList" class="collections-grid"></div>
+          </div>
+          <div class="create-collection">
+            <h3>Create New Collection</h3>
+            <div class="input-group">
+              <input id="newCollection" class="input" placeholder="Collection name" />
+              <button id="createCollection" class="btn btn-primary">Create</button>
+            </div>
+            <p class="hint">Collections map to Qdrant collections.</p>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <script src="/static/app.js?v=2"></script>
+  <script src="/static/app.js?v=3"></script>
 </body>
 </html>
