@@ -25,19 +25,6 @@
           <select id="collectionSelect" class="select-minimal"></select>
           <button id="manageCollectionsBtn" class="link-btn">Manage collections</button>
         </div>
-
-        <div class="sidebar__divider"></div>
-
-        <div class="sidebar__section">
-          <button id="openFileManagerBtn" class="link-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="17 8 12 3 7 8"/>
-              <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-            Upload & manage files
-          </button>
-        </div>
       </div>
 
       <div class="sidebar__footer">
@@ -62,7 +49,7 @@
                   <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
                 </svg>
               </button>
-              <textarea id="chatInput" class="composer__input" placeholder="Message ChatGPT" rows="1"></textarea>
+              <textarea id="chatInput" class="composer__input" placeholder="Message HerbGPT" rows="1"></textarea>
               <button id="sendBtn" class="composer__send" type="submit">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
@@ -70,7 +57,7 @@
               </button>
             </div>
           </form>
-          <div class="composer__footer">ChatGPT can make mistakes. Check important info.</div>
+          <div class="composer__footer">Herb is not always correct. Check important info.</div>
         </div>
       </div>
     </main>
@@ -118,9 +105,9 @@
     </div>
 
     <!-- Collections Manager Modal -->
-    <div id="collectionsModal" class="modal" style="display:none;">
+    <div id="collectionsModal" class="modal modal--large" style="display:none;">
       <div class="modal__overlay"></div>
-      <div class="modal__content">
+      <div class="modal__content modal__content--large">
         <div class="modal__header">
           <h2>Manage Collections</h2>
           <button id="closeCollectionsBtn" class="modal__close">
@@ -131,17 +118,90 @@
           </button>
         </div>
         <div class="modal__body">
-          <div class="collections-list">
-            <h3>Available Collections</h3>
+          <!-- Collections List View -->
+          <div id="collectionsListView" class="collections-view">
+            <div class="collections-header">
+              <h3>Your Collections</h3>
+              <button id="showCreateCollectionBtn" class="btn btn-primary">+ New Collection</button>
+            </div>
             <div id="collectionsList" class="collections-grid"></div>
           </div>
-          <div class="create-collection">
+
+          <!-- Create Collection View -->
+          <div id="createCollectionView" class="collection-detail-view" style="display:none;">
+            <button id="backToListBtn" class="btn-back">← Back to Collections</button>
             <h3>Create New Collection</h3>
-            <div class="input-group">
-              <input id="newCollection" class="input" placeholder="Collection name" />
-              <button id="createCollection" class="btn btn-primary">Create</button>
+            <form id="createCollectionForm" class="collection-form">
+              <div class="form-group">
+                <label for="newCollectionName">Collection Name</label>
+                <input id="newCollectionName" name="name" class="input" placeholder="e.g., Herb Marsh Articles" required />
+              </div>
+              <div class="form-group">
+                <label for="newCollectionDescription">Description</label>
+                <textarea id="newCollectionDescription" name="description" class="textarea" placeholder="What is this collection about?" rows="3"></textarea>
+              </div>
+              <div class="form-group">
+                <label for="collectionImage">Cover Image (optional)</label>
+                <input id="collectionImage" name="image" type="file" class="file-input" accept="image/*" />
+                <div id="imagePreview" class="image-preview" style="display:none;">
+                  <img id="previewImg" src="" alt="Preview" />
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary btn-full">Create Collection</button>
+            </form>
+            <p class="hint">A folder will be created at data/collections/[collection_name]</p>
+          </div>
+
+          <!-- Edit Collection View -->
+          <div id="editCollectionView" class="collection-detail-view" style="display:none;">
+            <button id="backToListFromEditBtn" class="btn-back">← Back to Collections</button>
+            <h3>Edit Collection</h3>
+            <form id="editCollectionForm" class="collection-form">
+              <input type="hidden" id="editCollectionId" />
+              <div class="form-group">
+                <label for="editCollectionName">Collection Name</label>
+                <input id="editCollectionName" name="name" class="input" required />
+              </div>
+              <div class="form-group">
+                <label for="editCollectionDescription">Description</label>
+                <textarea id="editCollectionDescription" name="description" class="textarea" rows="3"></textarea>
+              </div>
+              <div class="form-group">
+                <label for="editCollectionImage">Cover Image</label>
+                <input id="editCollectionImage" name="image" type="file" class="file-input" accept="image/*" />
+                <div id="editImagePreview" class="image-preview" style="display:none;">
+                  <img id="editPreviewImg" src="" alt="Preview" />
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary btn-full">Save Changes</button>
+            </form>
+
+            <!-- File Upload Section -->
+            <div class="upload-section" style="margin-top: 32px;">
+              <h3>Upload Files</h3>
+              <form id="uploadForm" class="upload-form">
+                <input id="fileInput" type="file" class="file-input" />
+                <button class="btn btn-primary" type="submit">Upload & Index</button>
+              </form>
+              <div id="uploadStatus" class="status"></div>
+              <div id="uploadProgressWrap" class="progress" style="display:none;">
+                <div class="progress__row">
+                  <div id="uploadProgressText" class="progress__text"></div>
+                  <div id="uploadProgressPct" class="progress__pct"></div>
+                </div>
+                <div class="progress__bar">
+                  <div id="uploadProgressBar" class="progress__barFill" style="width:0%;"></div>
+                </div>
+                <div id="uploadLogs" class="logs"></div>
+              </div>
             </div>
-            <p class="hint">Collections map to Qdrant collections.</p>
+
+            <!-- Documents Section -->
+            <div class="documents-section" style="margin-top: 32px;">
+              <h3>Documents</h3>
+              <button id="loadDocs" class="btn btn-secondary">Load documents</button>
+              <div id="docs" class="docs"></div>
+            </div>
           </div>
         </div>
       </div>

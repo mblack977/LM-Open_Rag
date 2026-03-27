@@ -2,7 +2,17 @@ const el = (id) => document.getElementById(id);
 
 const state = {
   collection: "",
+  chatHistory: [],
 };
+
+// View Management
+function showView(viewId) {
+  const views = ["collectionsListView", "createCollectionView", "editCollectionView"];
+  views.forEach(v => {
+    const view = el(v);
+    if (view) view.style.display = v === viewId ? "block" : "none";
+  });
+}
 
 // Modal Management
 function openModal(modalId) {
@@ -77,6 +87,58 @@ function addMessage(role, text, meta) {
 
   el("messages").appendChild(wrap);
   el("messages").scrollTop = el("messages").scrollHeight;
+  
+  // Add to chat history
+  state.chatHistory.push({ role, text, meta, timestamp: new Date().toISOString() });
+  saveChatHistory();
+}
+
+function saveChatHistory() {
+  try {
+    localStorage.setItem("herbgpt_chat_history", JSON.stringify(state.chatHistory));
+  } catch (e) {
+    console.error("Failed to save chat history:", e);
+  }
+}
+
+function loadChatHistory() {
+  try {
+    const saved = localStorage.getItem("herbgpt_chat_history");
+    if (saved) {
+      state.chatHistory = JSON.parse(saved);
+      // Restore messages to UI
+      state.chatHistory.forEach(msg => {
+        const wrap = document.createElement("div");
+        wrap.className = `msg msg--${msg.role}`;
+        
+        const content = document.createElement("div");
+        content.className = "msg__content";
+        content.textContent = msg.text;
+        wrap.appendChild(content);
+
+        if (msg.meta) {
+          const m = document.createElement("div");
+          m.className = "msg__meta";
+          m.textContent = msg.meta;
+          wrap.appendChild(m);
+        }
+
+        el("messages").appendChild(wrap);
+      });
+      
+      if (state.chatHistory.length > 0) {
+        clearWelcome();
+      }
+    }
+  } catch (e) {
+    console.error("Failed to load chat history:", e);
+  }
+}
+
+function clearChatHistory() {
+  state.chatHistory = [];
+  localStorage.removeItem("herbgpt_chat_history");
+  el("messages").innerHTML = '<div class="welcome"><h1>What can I help with?</h1></div>';
 }
 
 async function fetchCollections() {
@@ -92,7 +154,9 @@ async function loadCollections() {
 
   let cols = [];
   try {
-    cols = await fetchCollections();
+    const resp = await fetch("/collections");
+    const data = await resp.json();
+    cols = data.collections || [];
   } catch (e) {
     cols = [];
   }
@@ -104,13 +168,16 @@ async function loadCollections() {
 
   for (const c of cols) {
     const opt = document.createElement("option");
-    opt.value = c;
-    opt.textContent = c;
+    opt.value = c.name;
+    opt.textContent = c.display_name || c.name;
     select.appendChild(opt);
   }
 
-  if (state.collection && cols.includes(state.collection)) {
-    select.value = state.collection;
+  if (state.collection) {
+    const found = cols.find(c => c.name === state.collection);
+    if (found) {
+      select.value = state.collection;
+    }
   }
   
   return cols;
@@ -123,7 +190,9 @@ async function loadCollectionsList() {
   container.innerHTML = "";
   
   try {
-    const cols = await fetchCollections();
+    const resp = await fetch("/collections");
+    const data = await resp.json();
+    const cols = data.collections || [];
     
     if (!cols.length) {
       container.innerHTML = '<p class="status">No collections found</p>';
@@ -133,18 +202,63 @@ async function loadCollectionsList() {
     for (const c of cols) {
       const card = document.createElement("div");
       card.className = "collection-card";
-      if (c === state.collection) {
+      if (c.name === state.collection) {
         card.classList.add("active");
       }
       
+      // Image section
+      const imageDiv = document.createElement("div");
+      imageDiv.className = "collection-card__image";
+      
+      if (c.image) {
+        const img = document.createElement("img");
+        img.src = `/collections/${c.name}/image`;
+        img.alt = c.display_name || c.name;
+        imageDiv.appendChild(img);
+      } else {
+        const placeholder = document.createElement("div");
+        placeholder.className = "collection-card__image-placeholder";
+        placeholder.textContent = (c.display_name || c.name).charAt(0).toUpperCase();
+        imageDiv.appendChild(placeholder);
+      }
+      card.appendChild(imageDiv);
+      
+      // Edit button
+      const editBtn = document.createElement("button");
+      editBtn.className = "collection-card__edit-btn";
+      editBtn.textContent = "Edit";
+      editBtn.onclick = (e) => {
+        e.stopPropagation();
+        openEditView(c);
+      };
+      card.appendChild(editBtn);
+      
+      // Content section
+      const content = document.createElement("div");
+      content.className = "collection-card__content";
+      
       const name = document.createElement("div");
       name.className = "collection-card__name";
-      name.textContent = c;
-      card.appendChild(name);
+      name.textContent = c.display_name || c.name;
+      content.appendChild(name);
+      
+      if (c.description) {
+        const desc = document.createElement("div");
+        desc.className = "collection-card__description";
+        desc.textContent = c.description;
+        content.appendChild(desc);
+      }
+      
+      const meta = document.createElement("div");
+      meta.className = "collection-card__meta";
+      meta.textContent = `${c.file_count || 0} files`;
+      content.appendChild(meta);
+      
+      card.appendChild(content);
       
       card.addEventListener("click", () => {
-        state.collection = c;
-        el("collectionSelect").value = c;
+        state.collection = c.name;
+        el("collectionSelect").value = c.name;
         document.querySelectorAll(".collection-card").forEach(el => el.classList.remove("active"));
         card.classList.add("active");
       });
@@ -154,6 +268,28 @@ async function loadCollectionsList() {
   } catch (e) {
     container.innerHTML = `<p class="status">Error loading collections: ${e.message}</p>`;
   }
+}
+
+function openEditView(collection) {
+  showView("editCollectionView");
+  
+  // Populate form
+  el("editCollectionId").value = collection.name;
+  el("editCollectionName").value = collection.display_name || collection.name;
+  el("editCollectionDescription").value = collection.description || "";
+  
+  // Show current image if exists
+  const preview = el("editImagePreview");
+  const previewImg = el("editPreviewImg");
+  if (collection.image) {
+    previewImg.src = `/collections/${collection.name}/image`;
+    preview.style.display = "block";
+  } else {
+    preview.style.display = "none";
+  }
+  
+  // Set active collection for file uploads
+  state.collection = collection.name;
 }
 
 function currentCollection() {
@@ -288,7 +424,7 @@ function renderDocs(docs) {
 function wireEvents() {
   // New chat button
   el("newChatBtn").addEventListener("click", () => {
-    el("messages").innerHTML = '<div class="welcome"><h1>What can I help with?</h1></div>';
+    clearChatHistory();
   });
 
   // Collection select
@@ -297,30 +433,30 @@ function wireEvents() {
     setActiveCollection(v);
   });
 
-  // Open file manager modal
-  el("openFileManagerBtn").addEventListener("click", () => {
-    openModal("fileManagerModal");
-  });
-
-  // Close file manager modal
-  el("closeFileManagerBtn").addEventListener("click", () => {
-    closeModal("fileManagerModal");
-  });
-
-  // Attach button (opens file manager)
-  el("attachBtn").addEventListener("click", () => {
-    openModal("fileManagerModal");
-  });
-
   // Open collections modal
   el("manageCollectionsBtn").addEventListener("click", async () => {
     openModal("collectionsModal");
+    showView("collectionsListView");
     await loadCollectionsList();
   });
 
   // Close collections modal
   el("closeCollectionsBtn").addEventListener("click", () => {
     closeModal("collectionsModal");
+  });
+
+  // Show create collection view
+  el("showCreateCollectionBtn").addEventListener("click", () => {
+    showView("createCollectionView");
+  });
+
+  // Back to list buttons
+  el("backToListBtn").addEventListener("click", () => {
+    showView("collectionsListView");
+  });
+
+  el("backToListFromEditBtn").addEventListener("click", () => {
+    showView("collectionsListView");
   });
 
   // Close modals when clicking overlay
@@ -333,33 +469,127 @@ function wireEvents() {
     });
   });
 
-  // Create collection
-  el("createCollection").addEventListener("click", async () => {
-    const v = el("newCollection").value.trim();
-    if (!v) return;
-    
-    const btn = el("createCollection");
-    btn.disabled = true;
-    try {
-      const resp = await fetch("/create_collection", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ collection: v })
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || "Failed to create collection");
+  // Image preview for collection creation
+  const imageInput = el("collectionImage");
+  if (imageInput) {
+    imageInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      const preview = el("imagePreview");
+      const previewImg = el("previewImg");
       
-      await loadCollections();
-      await loadCollectionsList();
-      setActiveCollection(v);
-      el("collectionSelect").value = v;
-      el("newCollection").value = "";
-    } catch (err) {
-      alert(`Error creating collection: ${err.message}`);
-    } finally {
-      btn.disabled = false;
-    }
-  });
+      if (file && file.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          previewImg.src = e.target.result;
+          preview.style.display = "block";
+        };
+        reader.readAsDataURL(file);
+      } else {
+        preview.style.display = "none";
+      }
+    });
+  }
+
+  // Image preview for collection editing
+  const editImageInput = el("editCollectionImage");
+  if (editImageInput) {
+    editImageInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      const preview = el("editImagePreview");
+      const previewImg = el("editPreviewImg");
+      
+      if (file && file.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          previewImg.src = e.target.result;
+          preview.style.display = "block";
+        };
+        reader.readAsDataURL(file);
+      } else {
+        preview.style.display = "none";
+      }
+    });
+  }
+
+  // Create collection form
+  const createForm = el("createCollectionForm");
+  if (createForm) {
+    createForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      
+      const formData = new FormData(createForm);
+      const submitBtn = createForm.querySelector('button[type="submit"]');
+      
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Creating...";
+      
+      try {
+        const resp = await fetch("/collections", {
+          method: "POST",
+          body: formData
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || "Failed to create collection");
+        
+        await loadCollections();
+        await loadCollectionsList();
+        
+        setActiveCollection(data.collection);
+        el("collectionSelect").value = data.collection;
+        
+        createForm.reset();
+        el("imagePreview").style.display = "none";
+        
+        showView("collectionsListView");
+        alert(`Collection "${data.metadata.name}" created successfully!`);
+      } catch (err) {
+        alert(`Error creating collection: ${err.message}`);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Create Collection";
+      }
+    });
+  }
+
+  // Edit collection form
+  const editForm = el("editCollectionForm");
+  if (editForm) {
+    editForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      
+      const collectionId = el("editCollectionId").value;
+      const formData = new FormData(editForm);
+      const submitBtn = editForm.querySelector('button[type="submit"]');
+      
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Saving...";
+      
+      try {
+        const resp = await fetch(`/collections/${collectionId}`, {
+          method: "PUT",
+          body: formData
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || "Failed to update collection");
+        
+        await loadCollections();
+        await loadCollectionsList();
+        
+        if (data.new_name !== data.old_name) {
+          setActiveCollection(data.new_name);
+          el("collectionSelect").value = data.new_name;
+        }
+        
+        showView("collectionsListView");
+        alert("Collection updated successfully!");
+      } catch (err) {
+        alert(`Error updating collection: ${err.message}`);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Save Changes";
+      }
+    });
+  }
 
   // Upload form
   el("uploadForm").addEventListener("submit", async (e) => {
@@ -392,13 +622,24 @@ function wireEvents() {
     }
   });
 
-  // Chat form
-  el("chatForm").addEventListener("submit", async (e) => {
+  // Chat form with Enter/Shift+Enter support
+  const chatInput = el("chatInput");
+  const chatForm = el("chatForm");
+  
+  chatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      chatForm.dispatchEvent(new Event("submit"));
+    }
+  });
+
+  chatForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const text = el("chatInput").value.trim();
+    const text = chatInput.value.trim();
     if (!text) return;
 
-    el("chatInput").value = "";
+    chatInput.value = "";
+    chatInput.style.height = "auto";
     addMessage("user", text);
 
     try {
@@ -425,16 +666,24 @@ function wireEvents() {
         thinking.appendChild(metaDiv);
       }
       metaDiv.textContent = sourceMeta;
+      
+      // Update chat history
+      state.chatHistory[state.chatHistory.length - 1] = {
+        role: "assistant",
+        text: answer,
+        meta: sourceMeta,
+        timestamp: new Date().toISOString()
+      };
+      saveChatHistory();
     } catch (err) {
       addMessage("assistant", `Error: ${err.message}`);
     }
   });
 
   // Auto-resize textarea
-  const textarea = el("chatInput");
-  textarea.addEventListener("input", () => {
-    textarea.style.height = "auto";
-    textarea.style.height = Math.min(textarea.scrollHeight, 200) + "px";
+  chatInput.addEventListener("input", () => {
+    chatInput.style.height = "auto";
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 200) + "px";
   });
 }
 
@@ -442,4 +691,5 @@ function wireEvents() {
   setActiveCollection("");
   wireEvents();
   await loadCollections();
+  loadChatHistory();
 })();

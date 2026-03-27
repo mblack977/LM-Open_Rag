@@ -321,6 +321,16 @@ html, body {
   overflow: hidden;
 }
 
+.modal--large .modal__content {
+  max-width: 1000px;
+  max-height: 90vh;
+}
+
+.modal__content--large {
+  max-width: 1000px !important;
+  max-height: 90vh !important;
+}
+
 .modal__header {
   display: flex;
   align-items: center;
@@ -525,40 +535,207 @@ html, body {
   color: var(--text);
 }
 
+.textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text);
+  font-family: inherit;
+  resize: vertical;
+}
+
 .hint {
   font-size: 13px;
   color: var(--text-light);
   margin-top: 8px;
 }
 
+.collection-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.btn-full {
+  width: 100%;
+}
+
+.image-preview {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  max-width: 200px;
+}
+
+.image-preview img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
 .collections-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
   margin-top: 12px;
 }
 
 .collection-card {
-  padding: 16px;
-  background: var(--hover);
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
+  overflow: hidden;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .collection-card:hover {
   border-color: var(--accent);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
 }
 
 .collection-card.active {
   border-color: var(--accent);
-  background: rgba(16, 163, 127, 0.1);
+  box-shadow: 0 0 0 2px rgba(16, 163, 127, 0.2);
+}
+
+.collection-card__image {
+  width: 100%;
+  height: 120px;
+  background: var(--hover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.collection-card__image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.collection-card__image-placeholder {
+  width: 48px;
+  height: 48px;
+  background: var(--accent);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.collection-card__content {
+  padding: 12px;
 }
 
 .collection-card__name {
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
+  margin-bottom: 4px;
+}
+
+.collection-card__description {
+  font-size: 12px;
+  color: var(--text-light);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.collection-card__meta {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-light);
+}
+
+/* Collection Views */
+.collections-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.collections-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.collections-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.collection-detail-view {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.btn-back {
+  align-self: flex-start;
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-back:hover {
+  background: var(--hover);
+  border-color: var(--accent);
+}
+
+.collection-card__edit-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  cursor: pointer;
+}
+
+.collection-card:hover .collection-card__edit-btn {
+  opacity: 1;
+}
+
+.collection-card {
+  position: relative;
 }

@@ -21,6 +21,7 @@ from src.vector_store import VectorStore
 from src.embeddings import EmbeddingGenerator
 from src.lm_studio_client import LMStudioClient
 from src.supabase_rest import SupabaseRestClient, SupabaseRestError
+from src.collection_manager import CollectionManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,9 +36,10 @@ STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
 DATA_DIR = BASE_DIR / "data"
 UPLOADS_DIR = DATA_DIR / "uploads"
+COLLECTIONS_DIR = DATA_DIR / "collections"
 
 # Create directories if they don't exist
-for dir_path in [STATIC_DIR, TEMPLATES_DIR, DATA_DIR, UPLOADS_DIR]:
+for dir_path in [STATIC_DIR, TEMPLATES_DIR, DATA_DIR, UPLOADS_DIR, COLLECTIONS_DIR]:
     dir_path.mkdir(parents=True, exist_ok=True)
 
 # Mount static files and setup templates
@@ -50,6 +52,7 @@ embedding_generator = EmbeddingGenerator()
 doc_processor = DocumentProcessor()
 llm_client = LMStudioClient()
 rag_engine = RAGEngine(vector_store, embedding_generator, doc_processor, llm_client=llm_client)
+collection_manager = CollectionManager(collections_dir=COLLECTIONS_DIR)
 
 
 supabase: Optional[SupabaseRestClient] = None
@@ -469,30 +472,172 @@ async def home(request: Request):
 
 @app.get("/collections")
 async def list_collections():
+    """List all collections with metadata"""
     try:
-        collections = await vector_store.list_collections()
-        return {"status": "success", "collections": collections}
+        collections_metadata = collection_manager.list_collections()
+        # Also get Qdrant collections for backward compatibility
+        qdrant_collections = await vector_store.list_collections()
+        
+        # Merge: prioritize folder-based collections with metadata
+        result = []
+        seen = set()
+        
+        for meta in collections_metadata:
+            result.append({
+                "name": meta["sanitized_name"],
+                "display_name": meta["name"],
+                "description": meta.get("description", ""),
+                "image": meta.get("image"),
+                "file_count": meta.get("file_count", 0),
+                "created_at": meta.get("created_at"),
+                "has_metadata": True
+            })
+            seen.add(meta["sanitized_name"])
+        
+        # Add Qdrant collections without metadata
+        for qc in qdrant_collections:
+            if qc not in seen:
+                result.append({
+                    "name": qc,
+                    "display_name": qc,
+                    "description": "",
+                    "image": None,
+                    "file_count": 0,
+                    "created_at": None,
+                    "has_metadata": False
+                })
+        
+        return {"status": "success", "collections": result}
     except Exception as e:
         logger.error(f"Error listing collections: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error listing collections: {str(e)}")
 
 
+@app.post("/collections")
+async def create_collection_with_metadata(
+    name: str = Form(...),
+    description: str = Form(""),
+    image: Optional[UploadFile] = File(None)
+):
+    """Create a new collection with metadata and folder"""
+    try:
+        # Read image data if provided
+        image_data = None
+        image_filename = None
+        if image:
+            image_data = await image.read()
+            image_filename = image.filename
+        
+        # Create collection with metadata
+        metadata = collection_manager.create_collection(
+            name=name,
+            description=description,
+            image_data=image_data,
+            image_filename=image_filename
+        )
+        
+        # Create Qdrant collection
+        vector_size = embedding_generator.dimension
+        await vector_store.ensure_collection(metadata["sanitized_name"], vector_size)
+        
+        return {
+            "status": "success",
+            "collection": metadata["sanitized_name"],
+            "metadata": metadata,
+            "message": f"Collection '{name}' created successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error creating collection: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating collection: {str(e)}")
+
+
 @app.post("/create_collection")
-async def create_collection(payload: Dict[str, Any]):
+async def create_collection_simple(payload: Dict[str, Any]):
+    """Create collection (legacy endpoint for backward compatibility)"""
     try:
         collection = payload.get("collection", "").strip()
         if not collection:
             raise HTTPException(status_code=400, detail="Collection name is required")
         
-        vector_size = embedding_generator.dimension
-        await vector_store.ensure_collection(collection, vector_size)
+        # Create with basic metadata
+        metadata = collection_manager.create_collection(name=collection)
         
-        return {"status": "success", "collection": collection, "message": f"Collection '{collection}' created successfully"}
+        # Create Qdrant collection
+        vector_size = embedding_generator.dimension
+        await vector_store.ensure_collection(metadata["sanitized_name"], vector_size)
+        
+        return {"status": "success", "collection": metadata["sanitized_name"], "message": f"Collection '{collection}' created successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error creating collection: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error creating collection: {str(e)}")
+
+
+@app.put("/collections/{collection_name}")
+async def update_collection(
+    collection_name: str,
+    name: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None)
+):
+    """Update collection metadata and optionally rename folder"""
+    try:
+        # Read image data if provided
+        image_data = None
+        image_filename = None
+        if image:
+            image_data = await image.read()
+            image_filename = image.filename
+        
+        # Update collection
+        metadata = collection_manager.update_collection_metadata(
+            collection_name=collection_name,
+            name=name,
+            description=description,
+            image_data=image_data,
+            image_filename=image_filename
+        )
+        
+        # If name changed, also rename Qdrant collection
+        new_name = metadata["sanitized_name"]
+        if new_name != collection_name:
+            # Note: Qdrant doesn't support renaming, so we keep the old collection
+            # The mapping is handled by the metadata
+            pass
+        
+        return {
+            "status": "success",
+            "old_name": collection_name,
+            "new_name": new_name,
+            "metadata": metadata,
+            "message": f"Collection updated successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating collection: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating collection: {str(e)}")
+
+
+@app.get("/collections/{collection_name}/image")
+async def get_collection_image(collection_name: str):
+    """Serve collection cover image"""
+    try:
+        image_path = collection_manager.get_collection_image_path(collection_name)
+        if not image_path or not image_path.exists():
+            raise HTTPException(status_code=404, detail="Image not found")
+        
+        return FileResponse(image_path)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving collection image: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error serving image: {str(e)}")
 
 
 @app.get("/v1/models")
