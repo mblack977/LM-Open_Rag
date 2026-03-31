@@ -685,6 +685,71 @@ function wireEvents() {
     chatInput.style.height = "auto";
     chatInput.style.height = Math.min(chatInput.scrollHeight, 200) + "px";
   });
+
+  // Documentation modal
+  const documentationBtn = el("documentationBtn");
+  const closeDocumentationBtn = el("closeDocumentationBtn");
+  const tabRetrievalGuide = el("tabRetrievalGuide");
+  const tabImplementation = el("tabImplementation");
+
+  if (documentationBtn) {
+    documentationBtn.addEventListener("click", async () => {
+      openModal("documentationModal");
+      await loadDocumentation("retrieval-guide");
+    });
+  }
+
+  if (closeDocumentationBtn) {
+    closeDocumentationBtn.addEventListener("click", () => {
+      closeModal("documentationModal");
+    });
+  }
+
+  if (tabRetrievalGuide) {
+    tabRetrievalGuide.addEventListener("click", async () => {
+      setActiveTab("retrieval-guide");
+      await loadDocumentation("retrieval-guide");
+    });
+  }
+
+  if (tabImplementation) {
+    tabImplementation.addEventListener("click", async () => {
+      setActiveTab("implementation");
+      await loadDocumentation("implementation");
+    });
+  }
+}
+
+function setActiveTab(tabName) {
+  const tabs = document.querySelectorAll(".docs-tab");
+  tabs.forEach(tab => {
+    tab.classList.remove("docs-tab--active");
+  });
+  
+  if (tabName === "retrieval-guide") {
+    el("tabRetrievalGuide").classList.add("docs-tab--active");
+  } else if (tabName === "implementation") {
+    el("tabImplementation").classList.add("docs-tab--active");
+  }
+}
+
+async function loadDocumentation(docType) {
+  const docsContent = el("docsContent");
+  if (!docsContent) return;
+
+  docsContent.innerHTML = '<div class="loading">Loading documentation...</div>';
+
+  try {
+    const response = await fetch(`/documentation/${docType}`);
+    if (!response.ok) {
+      throw new Error(`Failed to load documentation: ${response.statusText}`);
+    }
+    
+    const html = await response.text();
+    docsContent.innerHTML = html;
+  } catch (err) {
+    docsContent.innerHTML = `<div class="loading" style="color: #e74c3c;">Error loading documentation: ${err.message}</div>`;
+  }
 }
 
 (async function init() {

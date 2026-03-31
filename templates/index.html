@@ -3,14 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Local RAG</title>
-  <link rel="stylesheet" href="/static/styles.css?v=3" />
+  <title>HerbGPT</title>
+  <link rel="stylesheet" href="/static/styles.css?v=5" />
 </head>
 <body>
   <div class="app">
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar__header">
+        <div class="sidebar__logo">
+          <img src="/static/herb-logo.png" alt="HerbGPT" class="logo-image" />
+        </div>
         <button id="newChatBtn" class="btn-new-chat">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 5v14M5 12h14"/>
@@ -28,7 +31,17 @@
       </div>
 
       <div class="sidebar__footer">
-        <div class="footer-info">Local RAG System</div>
+        <a href="/documentation" class="link-btn" style="margin-bottom: 8px; display: flex; align-items: center; text-decoration: none;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+          Documentation
+        </a>
+        <div class="footer-info">HerbGPT</div>
       </div>
     </aside>
 
@@ -206,8 +219,33 @@
         </div>
       </div>
     </div>
+
+    <!-- Documentation Modal -->
+    <div id="documentationModal" class="modal modal--large" style="display:none;">
+      <div class="modal__overlay"></div>
+      <div class="modal__content modal__content--large">
+        <div class="modal__header">
+          <h2>Documentation</h2>
+          <button id="closeDocumentationBtn" class="modal__close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal__body">
+          <div class="docs-tabs">
+            <button id="tabRetrievalGuide" class="docs-tab docs-tab--active">Retrieval Layer Guide</button>
+            <button id="tabImplementation" class="docs-tab">Implementation Summary</button>
+          </div>
+          <div id="docsContent" class="docs-content">
+            <div class="loading">Loading documentation...</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <script src="/static/app.js?v=3"></script>
+  <script src="/static/app.js?v=4"></script>
 </body>
 </html>

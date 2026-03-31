@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Documentation - Local RAG</title>
+  <link rel="stylesheet" href="/static/styles.css?v=3" />
+  <style>
+    .docs-layout {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      height: 100vh;
+      background: var(--bg);
+    }
+
+    .docs-sidebar {
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 24px 16px;
+    }
+
+    .docs-sidebar__header {
+      margin-bottom: 24px;
+    }
+
+    .docs-sidebar__title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .docs-sidebar__back {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 14px;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .docs-sidebar__back:hover {
+      background: var(--hover);
+      border-color: var(--accent);
+    }
+
+    .docs-nav {
+      list-style: none;
+    }
+
+    .docs-nav__section {
+      margin-bottom: 24px;
+    }
+
+    .docs-nav__section-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-light);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .docs-nav__item {
+      margin-bottom: 4px;
+    }
+
+    .docs-nav__link {
+      display: block;
+      padding: 8px 12px;
+      color: var(--text);
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+
+    .docs-nav__link:hover {
+      background: var(--hover);
+      color: var(--accent);
+    }
+
+    .docs-nav__link--active {
+      background: var(--accent);
+      color: white;
+    }
+
+    .docs-main {
+      overflow-y: auto;
+      padding: 40px 60px;
+      max-width: 900px;
+    }
+
+    .docs-main h1 {
+      font-size: 36px;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+
+    .docs-main h2 {
+      font-size: 28px;
+      margin-top: 48px;
+      margin-bottom: 16px;
+      color: var(--text);
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 8px;
+    }
+
+    .docs-main h3 {
+      font-size: 22px;
+      margin-top: 32px;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+
+    .docs-main h4 {
+      font-size: 18px;
+      margin-top: 24px;
+      margin-bottom: 10px;
+      color: var(--text);
+    }
+
+    .docs-main p {
+      line-height: 1.7;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+
+    .docs-main ul, .docs-main ol {
+      margin-left: 24px;
+      margin-bottom: 16px;
+      line-height: 1.7;
+    }
+
+    .docs-main li {
+      margin-bottom: 8px;
+    }
+
+    .docs-main code {
+      background: #f5f5f5;
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      color: #e74c3c;
+    }
+
+    .docs-main pre {
+      background: #2d2d2d;
+      color: #f8f8f2;
+      padding: 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+
+    .docs-main pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+
+    .docs-main blockquote {
+      border-left: 4px solid var(--accent);
+      padding-left: 20px;
+      margin: 20px 0;
+      color: var(--text-light);
+      font-style: italic;
+    }
+
+    .docs-main strong {
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .docs-main a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .docs-main a:hover {
+      text-decoration: underline;
+    }
+
+    .docs-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      background: #e8f5e9;
+      color: #2e7d32;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+
+    .docs-badge--new {
+      background: #e3f2fd;
+      color: #1976d2;
+    }
+  </style>
+</head>
+<body>
+  <div class="docs-layout">
+    <!-- Sidebar Navigation -->
+    <aside class="docs-sidebar">
+      <div class="docs-sidebar__header">
+        <div class="docs-sidebar__title">Documentation</div>
+        <a href="/" class="docs-sidebar__back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          Back to App
+        </a>
+      </div>
+
+      <nav class="docs-nav">
+        <div class="docs-nav__section">
+          <div class="docs-nav__section-title">Getting Started</div>
+          <ul>
+            <li class="docs-nav__item">
+              <a href="#overview" class="docs-nav__link docs-nav__link--active">Overview</a>
+            </li>
+            <li class="docs-nav__item">
+              <a href="#quick-start" class="docs-nav__link">Quick Start</a>
+            </li>
+            <li class="docs-nav__item">
+              <a href="#architecture" class="docs-nav__link">Architecture</a>
+            </li>
+          </ul>
+        </div>
+
+        <div class="docs-nav__section">
+          <div class="docs-nav__section-title">Retrieval System</div>
+          <ul>
+            <li class="docs-nav__item">
+              <a href="#retrieval-profiles" class="docs-nav__link">Retrieval Profiles <span class="docs-badge docs-badge--new">New</span></a>
+            </li>
+            <li class="docs-nav__item">
+              <a href="#hybrid-retrieval" class="docs-nav__link">Hybrid Retrieval</a>
+            </li>
+            <li class="docs-nav__item">
+              <a href="#profile-selector" class="docs-nav__link">Profile Selector</a>
+            </li>
+            <li class="docs-nav__item">
+              <a href="#advanced-tuning" class="docs-nav__link">Advanced Tuning</a>
+            </li>
+          </ul>
+        </div>
+
+        <div class="docs-nav__section">
+          <div class="docs-nav__section-title">Benchmarking</div>
+          <ul>
+            <li class="docs-nav__item">
+              <a href="#benchmark-queries" class="docs-nav__link">Benchmark Queries</a>
+            </li>
+            <li class="docs-nav__item">
+              <a href="#relevance-labeling" class="docs-nav__link">Relevance Labeling</a>
+            </li>
+            <li class="docs-nav__item">
+              <a href="#evaluation-metrics" class="docs-nav__link">Evaluation Metrics</a>
+            </li>
+          </ul>
+        </div>
+
+        <div class="docs-nav__section">
+          <div class="docs-nav__section-title">Optimization</div>
+          <ul>
+            <li class="docs-nav__item">
+              <a href="#grid-search" class="docs-nav__link">Grid Search</a>
+            </li>
+            <li class="docs-nav__item">
+              <a href="#query-type-optimization" class="docs-nav__link">Per-Query-Type Optimization</a>
+            </li>
+            <li class="docs-nav__item">
+              <a href="#evaluation-dashboard" class="docs-nav__link">Evaluation Dashboard</a>
+            </li>
+          </ul>
+        </div>
+
+        <div class="docs-nav__section">
+          <div class="docs-nav__section-title">API Reference</div>
+          <ul>
+            <li class="docs-nav__item">
+              <a href="#api-profiles" class="docs-nav__link">Profile Management</a>
+            </li>
+            <li class="docs-nav__item">
+              <a href="#api-benchmarks" class="docs-nav__link">Benchmarks & Labels</a>
+            </li>
+            <li class="docs-nav__item">
+              <a href="#api-evaluation" class="docs-nav__link">Evaluation & Runs</a>
+            </li>
+          </ul>
+        </div>
+
+        <div class="docs-nav__section">
+          <div class="docs-nav__section-title">Guides</div>
+          <ul>
+            <li class="docs-nav__item">
+              <a href="#setup-guide" class="docs-nav__link">Setup Guide</a>
+            </li>
+            <li class="docs-nav__item">
+              <a href="#annotation-guide" class="docs-nav__link">Annotation Guide</a>
+            </li>
+            <li class="docs-nav__item">
+              <a href="#optimization-guide" class="docs-nav__link">Optimization Guide</a>
+            </li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="docs-main" id="docsContent">
+      <h1 id="overview">Retrieval Layer System</h1>
+      <p>The retrieval layer is a <strong>first-class, user-selectable feature</strong> that allows you to control how documents are retrieved and ranked in your RAG system.</p>
+
+      <h2 id="quick-start">Quick Start</h2>
+      <p>Get started with the retrieval system in 3 steps:</p>
+      <ol>
+        <li><strong>Run Database Migration</strong> - Execute <code>RETRIEVAL_SCHEMA.sql</code> in your Supabase project</li>
+        <li><strong>Choose a Profile</strong> - Select from 5 predefined retrieval profiles</li>
+        <li><strong>Start Querying</strong> - Your queries will use the selected retrieval strategy</li>
+      </ol>
+
+      <h2 id="architecture">Architecture</h2>
+      <p>The system is built on three layers:</p>
+      <ul>
+        <li><strong>Simple Profile Selector</strong> - Choose from predefined profiles without technical knowledge</li>
+        <li><strong>Advanced Tuning Panel</strong> - Manually adjust weights and settings for power users</li>
+        <li><strong>Evaluation Dashboard</strong> - View benchmark results and optimization improvements</li>
+      </ul>
+
+      <h2 id="retrieval-profiles">Retrieval Profiles <span class="docs-badge docs-badge--new">New</span></h2>
+      <p>Profiles define how different retrieval methods are weighted and combined:</p>
+
+      <h3>Built-in Profiles</h3>
+      <ul>
+        <li><strong>Keyword Heavy</strong> - BM25: 50%, FTS: 30%, Vector: 20%<br>Best for queries with specific terminology or technical terms</li>
+        <li><strong>Balanced</strong> - BM25: 30%, FTS: 20%, Vector: 50%<br>General-purpose profile, recommended default</li>
+        <li><strong>Conceptual</strong> - BM25: 10%, FTS: 10%, Vector: 80%<br>Emphasizes semantic similarity for conceptual queries</li>
+        <li><strong>Academic Evidence</strong> - BM25: 25%, FTS: 25%, Vector: 50%<br>Optimized for finding empirical evidence and research findings</li>
+        <li><strong>Custom</strong> - User-defined weights<br>Create your own profile with manual weight tuning</li>
+      </ul>
+
+      <h2 id="hybrid-retrieval">Hybrid Retrieval</h2>
+      <p>The system combines three retrieval methods:</p>
+      <ol>
+        <li><strong>BM25</strong> - Traditional keyword-based ranking with TF-IDF weighting</li>
+        <li><strong>PostgreSQL FTS</strong> - Database-native full-text search with ranking</li>
+        <li><strong>Dense Vector Search</strong> - Semantic similarity using embeddings</li>
+      </ol>
+      <p>Results are merged using weighted scoring or Reciprocal Rank Fusion (RRF).</p>
+
+      <h2 id="profile-selector">Profile Selector</h2>
+      <p>To set a retrieval profile for your project:</p>
+      <pre><code>PUT /retrieval/projects/{collection}/profile
+{
+  "profile_name": "balanced"
+}</code></pre>
+
+      <h2 id="advanced-tuning">Advanced Tuning</h2>
+      <p>Power users can manually adjust retrieval weights:</p>
+      <pre><code>PUT /retrieval/projects/{collection}/profile
+{
+  "bm25_weight": 0.3,
+  "fts_weight": 0.2,
+  "vec_weight": 0.5,
+  "use_reranker": false
+}</code></pre>
+
+      <h2 id="benchmark-queries">Benchmark Queries</h2>
+      <p>Create evaluation queries to test retrieval performance:</p>
+      <pre><code>POST /retrieval/benchmarks
+{
+  "collection": "my_collection",
+  "query_text": "What is academic self-concept?",
+  "query_type": "definitional",
+  "source": "hand_curated"
+}</code></pre>
+
+      <h3>Query Types</h3>
+      <ul>
+        <li><strong>definitional</strong> - "What is X?", "Define Y"</li>
+        <li><strong>empirical_evidence</strong> - "What research shows...", "What findings..."</li>
+        <li><strong>critique</strong> - "What are the limitations...", "What problems..."</li>
+        <li><strong>methodological</strong> - "How to measure...", "What methods..."</li>
+        <li><strong>synthesis</strong> - "How do these relate...", "What is the overall picture..."</li>
+      </ul>
+
+      <h2 id="relevance-labeling">Relevance Labeling</h2>
+      <p>Annotate which documents/chunks are relevant for each query:</p>
+      <pre><code>POST /retrieval/labels
+{
+  "query_id": "query_123",
+  "collection": "my_collection",
+  "doc_id": "doc_456",
+  "chunk_index": 5,
+  "chunk_relevance": "supporting_evidence",
+  "evidence_role": "definition",
+  "annotator": "researcher_1"
+}</code></pre>
+
+      <h3>Relevance Levels</h3>
+      <ul>
+        <li><strong>Document Level</strong>: highly_relevant, somewhat_relevant, not_relevant</li>
+        <li><strong>Chunk Level</strong>: supporting_evidence, background_only, not_relevant</li>
+        <li><strong>Evidence Role</strong>: definition, background, empirical_finding, critique, method, limitation, gap</li>
+      </ul>
+
+      <h2 id="evaluation-metrics">Evaluation Metrics</h2>
+      <p>The system tracks comprehensive retrieval metrics:</p>
+      <ul>
+        <li><strong>Precision@K</strong> - Fraction of top-K results that are relevant</li>
+        <li><strong>Recall@K</strong> - Fraction of relevant documents found in top-K</li>
+        <li><strong>NDCG@K</strong> - Normalized Discounted Cumulative Gain (ranking quality)</li>
+        <li><strong>MRR</strong> - Mean Reciprocal Rank (position of first relevant result)</li>
+        <li><strong>MAP</strong> - Mean Average Precision (average precision across queries)</li>
+      </ul>
+
+      <h2 id="grid-search">Grid Search Optimization</h2>
+      <p>Automatically find the best weight combination:</p>
+      <ol>
+        <li>Create 20-30 benchmark queries</li>
+        <li>Annotate relevance labels</li>
+        <li>Run grid search across weight combinations</li>
+        <li>System evaluates each combination and selects the best</li>
+        <li>Apply winning profile to your project</li>
+      </ol>
+
+      <h2 id="query-type-optimization">Per-Query-Type Optimization</h2>
+      <p>Different query types can use different optimal profiles:</p>
+      <ul>
+        <li>Definitional queries may favor keyword matching</li>
+        <li>Conceptual queries may favor semantic search</li>
+        <li>System can automatically recommend profiles based on query type</li>
+      </ul>
+
+      <h2 id="evaluation-dashboard">Evaluation Dashboard</h2>
+      <p>View optimization results:</p>
+      <pre><code>GET /retrieval/runs?collection=my_collection
+GET /retrieval/runs/best?collection=my_collection&metric=ndcg_at_10
+GET /retrieval/optimizations?collection=my_collection</code></pre>
+
+      <h2 id="api-profiles">Profile Management API</h2>
+      <pre><code>GET    /retrieval/profiles              # List all profiles
+GET    /retrieval/profiles/{name}       # Get specific profile
+POST   /retrieval/profiles              # Create custom profile
+PUT    /retrieval/profiles/{name}       # Update profile
+DELETE /retrieval/profiles/{name}       # Delete custom profile</code></pre>
+
+      <h2 id="api-benchmarks">Benchmarks & Labels API</h2>
+      <pre><code>GET  /retrieval/benchmarks               # List queries
+POST /retrieval/benchmarks               # Create query
+POST /retrieval/benchmarks/bulk          # Bulk create
+
+POST /retrieval/labels                   # Create label
+POST /retrieval/labels/bulk              # Bulk create
+GET  /retrieval/labels/{query_id}        # Get labels</code></pre>
+
+      <h2 id="api-evaluation">Evaluation & Runs API</h2>
+      <pre><code>GET /retrieval/runs                      # List runs
+GET /retrieval/runs/best                 # Get best run
+GET /retrieval/optimizations             # List optimizations</code></pre>
+
+      <h2 id="setup-guide">Setup Guide</h2>
+      <ol>
+        <li><strong>Database Setup</strong>
+          <ul>
+            <li>Open Supabase Studio SQL Editor</li>
+            <li>Run <code>RETRIEVAL_SCHEMA.sql</code></li>
+            <li>Verify tables created successfully</li>
+          </ul>
+        </li>
+        <li><strong>Choose Default Profile</strong>
+          <ul>
+            <li>Start with "Balanced" profile</li>
+            <li>Test with sample queries</li>
+            <li>Adjust based on results</li>
+          </ul>
+        </li>
+        <li><strong>Create Benchmarks</strong>
+          <ul>
+            <li>Collect 20-30 real user questions</li>
+            <li>Add hand-curated queries for key use cases</li>
+            <li>Generate from document section headings</li>
+          </ul>
+        </li>
+      </ol>
+
+      <h2 id="annotation-guide">Annotation Guide</h2>
+      <ol>
+        <li><strong>Start Annotation Session</strong>
+          <pre><code>POST /retrieval/annotations/sessions
+{
+  "collection": "my_collection",
+  "annotator": "your_name"
+}</code></pre>
+        </li>
+        <li><strong>Review Retrieved Results</strong>
+          <ul>
+            <li>Run query with current profile</li>
+            <li>Review top 10 results</li>
+            <li>Mark relevant documents/chunks</li>
+          </ul>
+        </li>
+        <li><strong>Label Relevance</strong>
+          <ul>
+            <li>Document level: Is this document useful?</li>
+            <li>Chunk level: Does this passage answer the query?</li>
+            <li>Evidence role: What type of evidence is this?</li>
+          </ul>
+        </li>
+      </ol>
+
+      <h2 id="optimization-guide">Optimization Guide</h2>
+      <ol>
+        <li><strong>Prepare Benchmark Set</strong>
+          <ul>
+            <li>Minimum 20 annotated queries</li>
+            <li>Cover different query types</li>
+            <li>Include easy, medium, and hard queries</li>
+          </ul>
+        </li>
+        <li><strong>Run Grid Search</strong>
+          <ul>
+            <li>System tests weight combinations</li>
+            <li>Evaluates against benchmark metrics</li>
+            <li>Identifies best performing configuration</li>
+          </ul>
+        </li>
+        <li><strong>Review Results</strong>
+          <ul>
+            <li>Check improvement over baseline</li>
+            <li>Review per-query-type performance</li>
+            <li>Validate on held-out queries</li>
+          </ul>
+        </li>
+        <li><strong>Apply Best Profile</strong>
+          <ul>
+            <li>One-click application to project</li>
+            <li>Monitor production performance</li>
+            <li>Iterate based on user feedback</li>
+          </ul>
+        </li>
+      </ol>
+
+      <p style="margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--text-light);">
+        For more detailed information, see the full guides in the project repository.
+      </p>
+    </main>
+  </div>
+
+  <script>
+    // Smooth scrolling for anchor links
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          
+          // Update active link
+          document.querySelectorAll('.docs-nav__link').forEach(link => {
+            link.classList.remove('docs-nav__link--active');
+          });
+          this.classList.add('docs-nav__link--active');
+        }
+      });
+    });
+
+    // Highlight active section on scroll
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const id = entry.target.getAttribute('id');
+          document.querySelectorAll('.docs-nav__link').forEach(link => {
+            link.classList.remove('docs-nav__link--active');
+            if (link.getAttribute('href') === `#${id}`) {
+              link.classList.add('docs-nav__link--active');
+            }
+          });
+        }
+      });
+    }, { threshold: 0.5 });
+
+    document.querySelectorAll('h2[id], h3[id]').forEach(heading => {
+      observer.observe(heading);
+    });
+  </script>
+</body>
+</html>

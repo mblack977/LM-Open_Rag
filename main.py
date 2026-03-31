@@ -22,6 +22,10 @@ from src.embeddings import EmbeddingGenerator
 from src.lm_studio_client import LMStudioClient
 from src.supabase_rest import SupabaseRestClient, SupabaseRestError
 from src.collection_manager import CollectionManager
+from src.retrieval_api import RetrievalAPI
+from src.retrieval_profile_manager import RetrievalProfileManager
+from src.hybrid_retrieval import HybridRetrievalEngine
+from src.retrieval_profiles import RetrievalProfile
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -61,6 +65,9 @@ try:
 except SupabaseRestError as e:
     logger.warning(f"Supabase disabled: {str(e)}")
 
+retrieval_api = RetrievalAPI(supabase)
+profile_manager = RetrievalProfileManager(supabase)
+hybrid_engine = HybridRetrievalEngine()
 
 JOBS: Dict[str, Dict[str, Any]] = {}
 
@@ -468,6 +475,12 @@ async def _process_document_only(file_path: Path) -> Dict[str, Any]:
 async def home(request: Request):
     """Serve the main web interface"""
     return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/documentation", response_class=HTMLResponse)
+async def documentation_page(request: Request):
+    """Serve the documentation page"""
+    return templates.TemplateResponse("documentation.html", {"request": request})
 
 
 @app.get("/collections")
@@ -1153,6 +1166,353 @@ async def list_chat_messages(session_id: str):
     except Exception as e:
         logger.error(f"Error listing chat messages: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error listing chat messages: {str(e)}")
+
+@app.get("/retrieval/profiles")
+async def list_retrieval_profiles():
+    """List all available retrieval profiles"""
+    try:
+        result = await retrieval_api.list_profiles()
+        return result
+    except Exception as e:
+        logger.error(f"Error listing retrieval profiles: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error listing retrieval profiles: {str(e)}")
+
+
+@app.get("/retrieval/profiles/{profile_name}")
+async def get_retrieval_profile(profile_name: str):
+    """Get a specific retrieval profile"""
+    try:
+        result = await retrieval_api.get_profile(profile_name)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=404, detail=result.get("message"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting retrieval profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting retrieval profile: {str(e)}")
+
+
+@app.post("/retrieval/profiles")
+async def create_retrieval_profile(payload: Dict[str, Any]):
+    """Create a new custom retrieval profile"""
+    try:
+        result = await retrieval_api.create_profile(payload)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating retrieval profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating retrieval profile: {str(e)}")
+
+
+@app.put("/retrieval/profiles/{profile_name}")
+async def update_retrieval_profile(profile_name: str, payload: Dict[str, Any]):
+    """Update an existing retrieval profile"""
+    try:
+        result = await retrieval_api.update_profile(profile_name, payload)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating retrieval profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating retrieval profile: {str(e)}")
+
+
+@app.delete("/retrieval/profiles/{profile_name}")
+async def delete_retrieval_profile(profile_name: str):
+    """Delete a custom retrieval profile"""
+    try:
+        result = await retrieval_api.delete_profile(profile_name)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting retrieval profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error deleting retrieval profile: {str(e)}")
+
+
+@app.get("/retrieval/projects/{collection}/profile")
+async def get_project_retrieval_profile(collection: str):
+    """Get the retrieval profile for a specific project/collection"""
+    try:
+        result = await retrieval_api.get_project_profile(collection)
+        return result
+    except Exception as e:
+        logger.error(f"Error getting project retrieval profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting project retrieval profile: {str(e)}")
+
+
+@app.put("/retrieval/projects/{collection}/profile")
+async def set_project_retrieval_profile(collection: str, payload: Dict[str, Any]):
+    """Set the retrieval profile for a specific project/collection"""
+    try:
+        profile_name = payload.get("profile_name")
+        if profile_name:
+            result = await retrieval_api.set_project_profile(collection, profile_name)
+        else:
+            bm25_weight = payload.get("bm25_weight")
+            fts_weight = payload.get("fts_weight")
+            vec_weight = payload.get("vec_weight")
+            use_reranker = payload.get("use_reranker", False)
+            
+            if bm25_weight is None or fts_weight is None or vec_weight is None:
+                raise HTTPException(status_code=400, detail="Either profile_name or custom weights required")
+            
+            result = await retrieval_api.set_project_custom_weights(
+                collection, bm25_weight, fts_weight, vec_weight, use_reranker
+            )
+        
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting project retrieval profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error setting project retrieval profile: {str(e)}")
+
+
+@app.get("/retrieval/benchmarks")
+async def list_benchmark_queries(collection: Optional[str] = None, query_type: Optional[str] = None):
+    """List benchmark queries"""
+    try:
+        result = await retrieval_api.list_benchmark_queries(collection, query_type)
+        return result
+    except Exception as e:
+        logger.error(f"Error listing benchmark queries: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error listing benchmark queries: {str(e)}")
+
+
+@app.post("/retrieval/benchmarks")
+async def create_benchmark_query(payload: Dict[str, Any]):
+    """Create a new benchmark query"""
+    try:
+        result = await retrieval_api.create_benchmark_query(payload)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating benchmark query: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating benchmark query: {str(e)}")
+
+
+@app.post("/retrieval/benchmarks/bulk")
+async def bulk_create_benchmark_queries(payload: Dict[str, Any]):
+    """Bulk create benchmark queries"""
+    try:
+        queries = payload.get("queries", [])
+        result = await retrieval_api.bulk_create_benchmark_queries(queries)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error bulk creating benchmark queries: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error bulk creating benchmark queries: {str(e)}")
+
+
+@app.post("/retrieval/labels")
+async def create_relevance_label(payload: Dict[str, Any]):
+    """Create a relevance label for annotation"""
+    try:
+        result = await retrieval_api.create_relevance_label(payload)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating relevance label: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating relevance label: {str(e)}")
+
+
+@app.post("/retrieval/labels/bulk")
+async def bulk_create_relevance_labels(payload: Dict[str, Any]):
+    """Bulk create relevance labels"""
+    try:
+        labels = payload.get("labels", [])
+        result = await retrieval_api.bulk_create_relevance_labels(labels)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error bulk creating relevance labels: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error bulk creating relevance labels: {str(e)}")
+
+
+@app.get("/retrieval/labels/{query_id}")
+async def get_labels_for_query(query_id: str):
+    """Get all relevance labels for a specific query"""
+    try:
+        result = await retrieval_api.get_labels_for_query(query_id)
+        return result
+    except Exception as e:
+        logger.error(f"Error getting labels for query: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting labels for query: {str(e)}")
+
+
+@app.post("/retrieval/annotations/sessions")
+async def create_annotation_session(payload: Dict[str, Any]):
+    """Create a new annotation session"""
+    try:
+        collection = payload.get("collection")
+        annotator = payload.get("annotator")
+        
+        if not collection or not annotator:
+            raise HTTPException(status_code=400, detail="collection and annotator are required")
+        
+        result = await retrieval_api.create_annotation_session(collection, annotator)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating annotation session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating annotation session: {str(e)}")
+
+
+@app.get("/retrieval/runs")
+async def list_retrieval_runs(collection: Optional[str] = None):
+    """List retrieval evaluation runs"""
+    try:
+        result = await retrieval_api.list_retrieval_runs(collection)
+        return result
+    except Exception as e:
+        logger.error(f"Error listing retrieval runs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error listing retrieval runs: {str(e)}")
+
+
+@app.get("/retrieval/runs/best")
+async def get_best_retrieval_run(collection: str, metric: str = "ndcg_at_10"):
+    """Get the best retrieval run for a collection"""
+    try:
+        result = await retrieval_api.get_best_run(collection, metric)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=404, detail=result.get("message"))
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting best retrieval run: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting best retrieval run: {str(e)}")
+
+
+@app.get("/retrieval/optimizations")
+async def list_optimizations(collection: Optional[str] = None):
+    """List optimization history"""
+    try:
+        result = await retrieval_api.list_optimizations(collection)
+        return result
+    except Exception as e:
+        logger.error(f"Error listing optimizations: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error listing optimizations: {str(e)}")
+
+
+@app.get("/documentation/{doc_type}")
+async def get_documentation(doc_type: str):
+    """Serve documentation as HTML"""
+    try:
+        # Map doc types to files
+        doc_files = {
+            "retrieval-guide": BASE_DIR / "RETRIEVAL_LAYER_GUIDE.md",
+            "implementation": BASE_DIR / "IMPLEMENTATION_SUMMARY.md",
+        }
+        
+        if doc_type not in doc_files:
+            raise HTTPException(status_code=404, detail="Documentation not found")
+        
+        doc_path = doc_files[doc_type]
+        if not doc_path.exists():
+            raise HTTPException(status_code=404, detail="Documentation file not found")
+        
+        # Read markdown file
+        markdown_content = doc_path.read_text(encoding="utf-8")
+        
+        # Convert markdown to HTML (basic conversion)
+        html_content = markdown_to_html(markdown_content)
+        
+        return HTMLResponse(content=html_content)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving documentation: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error serving documentation: {str(e)}")
+
+
+def markdown_to_html(markdown_text: str) -> str:
+    """Convert markdown to HTML with basic formatting"""
+    import re
+    
+    html = markdown_text
+    
+    # Headers
+    html = re.sub(r'^# (.+)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
+    html = re.sub(r'^## (.+)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)
+    html = re.sub(r'^### (.+)$', r'<h3>\1</h3>', html, flags=re.MULTILINE)
+    html = re.sub(r'^#### (.+)$', r'<h4>\1</h4>', html, flags=re.MULTILINE)
+    
+    # Code blocks
+    html = re.sub(r'```(\w+)?\n(.*?)```', r'<pre><code>\2</code></pre>', html, flags=re.DOTALL)
+    
+    # Inline code
+    html = re.sub(r'`([^`]+)`', r'<code>\1</code>', html)
+    
+    # Bold
+    html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', html)
+    
+    # Italic
+    html = re.sub(r'\*(.+?)\*', r'<em>\1</em>', html)
+    
+    # Links
+    html = re.sub(r'\[([^\]]+)\]\(([^\)]+)\)', r'<a href="\2">\1</a>', html)
+    
+    # Unordered lists
+    lines = html.split('\n')
+    in_list = False
+    result = []
+    for line in lines:
+        if re.match(r'^- ', line):
+            if not in_list:
+                result.append('<ul>')
+                in_list = True
+            result.append(f'<li>{line[2:]}</li>')
+        else:
+            if in_list:
+                result.append('</ul>')
+                in_list = False
+            result.append(line)
+    if in_list:
+        result.append('</ul>')
+    html = '\n'.join(result)
+    
+    # Paragraphs
+    html = re.sub(r'\n\n', '</p><p>', html)
+    html = f'<p>{html}</p>'
+    
+    # Clean up empty paragraphs
+    html = re.sub(r'<p>\s*</p>', '', html)
+    html = re.sub(r'<p>\s*<h', '<h', html)
+    html = re.sub(r'</h(\d)>\s*</p>', r'</h\1>', html)
+    html = re.sub(r'<p>\s*<ul>', '<ul>', html)
+    html = re.sub(r'</ul>\s*</p>', '</ul>', html)
+    html = re.sub(r'<p>\s*<pre>', '<pre>', html)
+    html = re.sub(r'</pre>\s*</p>', '</pre>', html)
+    
+    return html
+
 
 @app.get("/health")
 async def health_check():
