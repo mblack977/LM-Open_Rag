@@ -26,6 +26,7 @@ from src.retrieval_api import RetrievalAPI
 from src.retrieval_profile_manager import RetrievalProfileManager
 from src.hybrid_retrieval import HybridRetrievalEngine
 from src.retrieval_profiles import RetrievalProfile
+from src.chat_manager import ChatManager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -68,6 +69,7 @@ except SupabaseRestError as e:
 retrieval_api = RetrievalAPI(supabase)
 profile_manager = RetrievalProfileManager(supabase)
 hybrid_engine = HybridRetrievalEngine()
+chat_manager = ChatManager(supabase) if supabase else None
 
 JOBS: Dict[str, Dict[str, Any]] = {}
 
@@ -991,12 +993,36 @@ async def query_documents(
     fts_limit: int = Form(30),
     vec_limit: int = Form(30),
     retrieve_only: bool = Form(False),
+    profile_name: Optional[str] = Form(None),
+    bm25_weight: Optional[float] = Form(None),
+    pg_fts_weight: Optional[float] = Form(None),
+    pg_vec_weight: Optional[float] = Form(None),
+    use_reranker: Optional[bool] = Form(None),
+    normalize_scores: Optional[bool] = Form(None),
 ):
-    """Query the RAG system"""
+    """Query the RAG system with optional retrieval profile or custom weights"""
     try:
         safe_collection = collection.strip()
         if not safe_collection:
             raise HTTPException(status_code=400, detail="Collection is required")
+
+        # If profile_name is provided, use profile-based retrieval
+        if profile_name:
+            from src.retrieval_profiles import get_builtin_profile, BUILTIN_PROFILES
+            profile = get_builtin_profile(profile_name)
+            if not profile:
+                raise HTTPException(status_code=400, detail=f"Unknown profile: {profile_name}")
+            
+            # Use profile settings
+            mode = "hybrid"
+            top_k = profile.top_k
+            fts_limit = profile.fts_limit
+            vec_limit = profile.vec_limit
+        
+        # If custom weights provided, override
+        if bm25_weight is not None or pg_fts_weight is not None or pg_vec_weight is not None:
+            # Custom weights mode - will be handled in retrieval
+            mode = "custom"
 
         candidates = await _retrieve_candidates(
             collection=safe_collection,
@@ -1021,7 +1047,7 @@ async def query_documents(
                     f"Error: {str(e)}"
                 ),
             )
-        return {"status": "success", "response": response, "mode": (mode or "hybrid")}
+        return {"status": "success", "response": response, "mode": (mode or "hybrid"), "profile": profile_name}
     
     except Exception as e:
         logger.error(f"Error processing query: {str(e)}")
@@ -1099,29 +1125,6 @@ async def update_document_metadata(doc_id: str, collection: str, payload: Dict[s
     except Exception as e:
         logger.error(f"Error updating document metadata: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error updating document metadata: {str(e)}")
-
-
-@app.get("/chat/sessions")
-async def list_chat_sessions(collection: str):
-    try:
-        safe_collection = collection.strip()
-        if not safe_collection:
-            raise HTTPException(status_code=400, detail="Collection is required")
-        if not supabase:
-            raise HTTPException(status_code=503, detail="Supabase is not configured")
-
-        rows = await supabase.select(
-            "ChatSessions",
-            select="id,collection,name,created_at,updated_at",
-            filters={"collection": f"eq.{safe_collection}"},
-            order="updated_at.desc",
-        )
-        return {"status": "success", "sessions": rows}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error listing chat sessions: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error listing chat sessions: {str(e)}")
 
 
 @app.post("/chat/sessions")
@@ -1518,6 +1521,139 @@ def markdown_to_html(markdown_text: str) -> str:
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "message": "Local RAG system is running"}
+
+# Chat Session Endpoints
+@app.post("/chat/sessions")
+async def create_chat_session(payload: Dict[str, Any]):
+    """Create a new chat session"""
+    if not chat_manager:
+        raise HTTPException(status_code=503, detail="Chat history not available")
+    
+    try:
+        title = payload.get("title", "New Chat")
+        collection = payload.get("collection")
+        
+        result = await chat_manager.create_session(title, collection)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error creating chat session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating chat session: {str(e)}")
+
+
+@app.get("/chat/sessions")
+async def list_chat_sessions(collection: Optional[str] = None, limit: int = 50):
+    """List chat sessions"""
+    if not chat_manager:
+        raise HTTPException(status_code=503, detail="Chat history not available")
+    
+    try:
+        result = await chat_manager.list_sessions(collection, limit)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error listing chat sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error listing chat sessions: {str(e)}")
+
+
+@app.get("/chat/sessions/{session_id}")
+async def get_chat_session(session_id: str):
+    """Get a specific chat session"""
+    if not chat_manager:
+        raise HTTPException(status_code=503, detail="Chat history not available")
+    
+    try:
+        result = await chat_manager.get_session(session_id)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=404, detail=result.get("message"))
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error getting chat session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting chat session: {str(e)}")
+
+
+@app.put("/chat/sessions/{session_id}")
+async def update_chat_session(session_id: str, payload: Dict[str, Any]):
+    """Update a chat session"""
+    if not chat_manager:
+        raise HTTPException(status_code=503, detail="Chat history not available")
+    
+    try:
+        title = payload.get("title")
+        result = await chat_manager.update_session(session_id, title)
+        
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error updating chat session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error updating chat session: {str(e)}")
+
+
+@app.delete("/chat/sessions/{session_id}")
+async def delete_chat_session(session_id: str):
+    """Delete a chat session"""
+    if not chat_manager:
+        raise HTTPException(status_code=503, detail="Chat history not available")
+    
+    try:
+        result = await chat_manager.delete_session(session_id)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error deleting chat session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error deleting chat session: {str(e)}")
+
+
+@app.get("/chat/sessions/{session_id}/messages")
+async def get_chat_messages(session_id: str):
+    """Get messages for a chat session"""
+    if not chat_manager:
+        raise HTTPException(status_code=503, detail="Chat history not available")
+    
+    try:
+        result = await chat_manager.get_messages(session_id)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error getting chat messages: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting chat messages: {str(e)}")
+
+
+@app.post("/chat/sessions/{session_id}/messages")
+async def add_chat_message(session_id: str, payload: Dict[str, Any]):
+    """Add a message to a chat session"""
+    if not chat_manager:
+        raise HTTPException(status_code=503, detail="Chat history not available")
+    
+    try:
+        role = payload.get("role")
+        content = payload.get("content")
+        sources = payload.get("sources")
+        retrieval_profile = payload.get("retrieval_profile")
+        
+        if not role or not content:
+            raise HTTPException(status_code=400, detail="role and content are required")
+        
+        result = await chat_manager.add_message(session_id, role, content, sources, retrieval_profile)
+        if result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message"))
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error adding chat message: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error adding chat message: {str(e)}")
+
 
 if __name__ == "__main__":
     reload_enabled = (os.getenv("UVICORN_RELOAD") or "").strip() == "1"

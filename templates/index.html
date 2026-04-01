@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HerbGPT</title>
-  <link rel="stylesheet" href="/static/styles.css?v=5" />
+  <link rel="stylesheet" href="/static/styles.css?v=9" />
+  <link rel="stylesheet" href="/static/chat-history.css?v=1" />
 </head>
 <body>
   <div class="app">
@@ -20,13 +21,147 @@
           </svg>
           New chat
         </button>
+        <button id="manageCollectionsBtn" class="btn-manage-collections">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+          Manage collections
+        </button>
       </div>
 
       <div class="sidebar__content">
         <div class="sidebar__section">
           <div class="section-title">Collection</div>
           <select id="collectionSelect" class="select-minimal"></select>
-          <button id="manageCollectionsBtn" class="link-btn">Manage collections</button>
+        </div>
+
+        <!-- Chat History -->
+        <div class="sidebar__section">
+          <div class="section-title">
+            Chat History
+            <button id="searchChatsBtn" class="icon-btn" title="Search chats">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="m21 21-4.35-4.35"/>
+              </svg>
+            </button>
+          </div>
+          <div id="chatSearchBox" class="chat-search" style="display: none;">
+            <input id="chatSearchInput" type="text" class="input" placeholder="Search chats..." />
+          </div>
+          <div id="chatHistoryList" class="chat-history-list">
+            <div class="chat-history-empty">No chat history yet</div>
+          </div>
+        </div>
+
+        <!-- Retrieval Controls -->
+        <div class="sidebar__section">
+          <div class="section-title">Retrieval</div>
+          
+          <!-- Profile Selector -->
+          <div class="retrieval-profile">
+            <select id="retrievalProfileSelect" class="select-minimal">
+              <option value="balanced">Balanced</option>
+              <option value="keyword_heavy">Keyword Heavy</option>
+              <option value="conceptual">Conceptual</option>
+              <option value="academic_evidence">Academic Evidence</option>
+              <option value="custom">Custom</option>
+            </select>
+            <div id="profileDescription" class="profile-description">
+              Balanced approach combining keyword matching and semantic understanding. Good general-purpose profile.
+            </div>
+          </div>
+
+          <!-- Advanced Tuning Toggle -->
+          <button id="advancedTuningBtn" class="link-btn" style="margin-top: 12px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: middle;">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"/>
+            </svg>
+            Advanced tuning
+          </button>
+
+          <!-- Advanced Tuning Panel (hidden by default) -->
+          <div id="advancedTuningPanel" class="advanced-tuning" style="display: none;">
+            <!-- Methods Enabled -->
+            <div class="tuning-section">
+              <div class="tuning-label">Methods</div>
+              <div class="method-toggles">
+                <label class="toggle-pill">
+                  <input type="checkbox" id="methodBM25" checked />
+                  <span>BM25</span>
+                </label>
+                <label class="toggle-pill">
+                  <input type="checkbox" id="methodFTS" checked />
+                  <span>pg_fts</span>
+                </label>
+                <label class="toggle-pill">
+                  <input type="checkbox" id="methodVec" checked />
+                  <span>pg_vec</span>
+                </label>
+                <label class="toggle-pill">
+                  <input type="checkbox" id="methodReranker" />
+                  <span>Reranker</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Weight Sliders -->
+            <div class="tuning-section">
+              <div class="tuning-label">
+                Hybrid weights
+                <span class="tuning-hint">Auto-normalized</span>
+              </div>
+              
+              <div class="weight-slider">
+                <div class="weight-slider__header">
+                  <span>BM25</span>
+                  <span id="bm25WeightValue" class="weight-value">0.30</span>
+                </div>
+                <input type="range" id="bm25Weight" min="0" max="100" value="30" class="slider" />
+              </div>
+
+              <div class="weight-slider">
+                <div class="weight-slider__header">
+                  <span>pg_fts</span>
+                  <span id="ftsWeightValue" class="weight-value">0.20</span>
+                </div>
+                <input type="range" id="ftsWeight" min="0" max="100" value="20" class="slider" />
+              </div>
+
+              <div class="weight-slider">
+                <div class="weight-slider__header">
+                  <span>pg_vec</span>
+                  <span id="vecWeightValue" class="weight-value">0.50</span>
+                </div>
+                <input type="range" id="vecWeight" min="0" max="100" value="50" class="slider" />
+              </div>
+            </div>
+
+            <!-- Options -->
+            <div class="tuning-section">
+              <div class="tuning-label">Options</div>
+              <label class="checkbox-option">
+                <input type="checkbox" id="normalizeScores" checked />
+                <span>Normalize scores before combining</span>
+              </label>
+              <label class="checkbox-option">
+                <input type="checkbox" id="useReranker" />
+                <span>Use reranker</span>
+              </label>
+              <label class="checkbox-option">
+                <input type="checkbox" id="boostMetadata" />
+                <span>Boost metadata matches</span>
+              </label>
+            </div>
+
+            <!-- Save/Apply Buttons -->
+            <div class="tuning-actions">
+              <button id="applyProfileBtn" class="btn btn-primary btn-sm">Apply</button>
+              <button id="saveProfileBtn" class="btn btn-secondary btn-sm">Save as custom</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -68,6 +203,11 @@
                   <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
                 </svg>
               </button>
+              <button id="stopBtn" class="composer__stop" type="button" style="display: none;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2"/>
+                </svg>
+              </button>
             </div>
           </form>
           <div class="composer__footer">Herb is not always correct. Check important info.</div>
@@ -91,27 +231,27 @@
         <div class="modal__body">
           <div class="upload-section">
             <h3>Upload File</h3>
-            <form id="uploadForm" class="upload-form">
-              <input id="fileInput" type="file" class="file-input" />
+            <form id="fileManagerUploadForm" class="upload-form">
+              <input id="fileManagerFileInput" type="file" class="file-input" />
               <button class="btn btn-primary" type="submit">Upload & Index</button>
             </form>
-            <div id="uploadStatus" class="status"></div>
-            <div id="uploadProgressWrap" class="progress" style="display:none;">
+            <div id="fileManagerUploadStatus" class="status"></div>
+            <div id="fileManagerUploadProgressWrap" class="progress" style="display:none;">
               <div class="progress__row">
-                <div id="uploadProgressText" class="progress__text"></div>
-                <div id="uploadProgressPct" class="progress__pct"></div>
+                <div id="fileManagerUploadProgressText" class="progress__text"></div>
+                <div id="fileManagerUploadProgressPct" class="progress__pct"></div>
               </div>
               <div class="progress__bar">
-                <div id="uploadProgressBar" class="progress__barFill" style="width:0%;"></div>
+                <div id="fileManagerUploadProgressBar" class="progress__barFill" style="width:0%;"></div>
               </div>
-              <div id="uploadLogs" class="logs"></div>
+              <div id="fileManagerUploadLogs" class="logs"></div>
             </div>
           </div>
 
           <div class="documents-section">
             <h3>Documents</h3>
-            <button id="loadDocs" class="btn btn-secondary">Load documents</button>
-            <div id="docs" class="docs"></div>
+            <button id="fileManagerLoadDocs" class="btn btn-secondary">Load documents</button>
+            <div id="fileManagerDocs" class="docs"></div>
           </div>
         </div>
       </div>
@@ -244,8 +384,54 @@
         </div>
       </div>
     </div>
+
+    <!-- Save Profile Modal -->
+    <div id="saveProfileModal" class="modal" style="display:none;">
+      <div class="modal__overlay"></div>
+      <div class="modal__content" style="max-width: 400px;">
+        <div class="modal__header">
+          <h2>Save Retrieval Profile</h2>
+          <button id="closeSaveProfileBtn" class="modal__close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal__body">
+          <form id="saveProfileForm">
+            <div class="form-group">
+              <label for="profileName">Profile Name</label>
+              <input id="profileName" name="name" class="input" placeholder="e.g., My Research Profile" required />
+            </div>
+            <div class="form-group">
+              <label for="profileDisplayName">Display Name</label>
+              <input id="profileDisplayName" name="display_name" class="input" placeholder="e.g., Research Profile" required />
+            </div>
+            <div class="form-group">
+              <label for="profileDesc">Description (optional)</label>
+              <textarea id="profileDesc" name="description" class="textarea" placeholder="What is this profile optimized for?" rows="3"></textarea>
+            </div>
+            <div class="profile-summary">
+              <strong>Current Settings:</strong>
+              <div style="margin-top: 8px; font-size: 13px; color: var(--text-light);">
+                <div>BM25: <span id="saveBM25Value">0.30</span></div>
+                <div>pg_fts: <span id="saveFTSValue">0.20</span></div>
+                <div>pg_vec: <span id="saveVecValue">0.50</span></div>
+                <div>Reranker: <span id="saveRerankerValue">Off</span></div>
+                <div>Normalize: <span id="saveNormalizeValue">On</span></div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 16px;">
+              <button type="submit" class="btn btn-primary" style="flex: 1;">Save Profile</button>
+              <button type="button" id="cancelSaveProfileBtn" class="btn btn-secondary">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <script src="/static/app.js?v=4"></script>
+  <script src="/static/app.js?v=10"></script>
 </body>
 </html>

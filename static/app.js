@@ -3,6 +3,18 @@ const el = (id) => document.getElementById(id);
 const state = {
   collection: "",
   chatHistory: [],
+  currentSessionId: null,
+  sessions: [],
+  retrievalProfile: "balanced",
+  customWeights: {
+    bm25: 0.30,
+    fts: 0.20,
+    vec: 0.50,
+  },
+  useReranker: false,
+  normalizeScores: true,
+  boostMetadata: false,
+  currentAbortController: null,
 };
 
 // View Management
@@ -30,11 +42,28 @@ function closeModal(modalId) {
 }
 
 function setStatus(text) {
-  el("uploadStatus").textContent = text || "";
+  const statusEl = el("uploadStatus");
+  if (statusEl) {
+    statusEl.textContent = text || "";
+    // Make status more visible with styling based on content
+    if (text.includes("✅") || text.includes("Success")) {
+      statusEl.style.color = "#27ae60";
+      statusEl.style.fontWeight = "600";
+    } else if (text.includes("❌") || text.includes("Error")) {
+      statusEl.style.color = "#e74c3c";
+      statusEl.style.fontWeight = "600";
+    } else {
+      statusEl.style.color = "";
+      statusEl.style.fontWeight = "";
+    }
+  }
 }
 
 function showProgress(show) {
-  el("uploadProgressWrap").style.display = show ? "block" : "none";
+  const progressEl = el("uploadProgressWrap");
+  if (progressEl) {
+    progressEl.style.display = show ? "block" : "none";
+  }
 }
 
 function setProgress(stage, current, total, message, logs) {
@@ -141,11 +170,329 @@ function clearChatHistory() {
   el("messages").innerHTML = '<div class="welcome"><h1>What can I help with?</h1></div>';
 }
 
+// Chat Session Management
+async function createNewSession(title = "New Chat") {
+  try {
+    const resp = await fetch("/chat/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: title,
+        collection: state.collection || null
+      })
+    });
+    
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || "Failed to create session");
+    
+    state.currentSessionId = data.session.session_id;
+    await loadChatSessions();
+    return data.session;
+  } catch (e) {
+    console.error("Failed to create session:", e);
+    return null;
+  }
+}
+
+async function loadChatSessions() {
+  try {
+    const resp = await fetch("/chat/sessions?limit=50");
+    
+    if (!resp.ok) {
+      const errorText = await resp.text();
+      console.error("Failed to load sessions - HTTP", resp.status, errorText);
+      state.sessions = [];
+      renderChatSessions();
+      return;
+    }
+    
+    const data = await resp.json();
+    state.sessions = data.sessions || [];
+    renderChatSessions();
+  } catch (e) {
+    console.error("Failed to load sessions:", e);
+    state.sessions = [];
+    renderChatSessions();
+  }
+}
+
+function filterChatSessions(query) {
+  if (!query) {
+    renderChatSessions();
+    return;
+  }
+  
+  const filtered = state.sessions.filter(session => {
+    return session.title.toLowerCase().includes(query) ||
+           (session.collection && session.collection.toLowerCase().includes(query));
+  });
+  
+  renderChatSessions(filtered);
+}
+
+function renderChatSessions(sessionsToRender = null) {
+  const list = el("chatHistoryList");
+  if (!list) return;
+  
+  const sessions = sessionsToRender || state.sessions;
+  
+  if (sessions.length === 0) {
+    list.innerHTML = '<div class="chat-history-empty">No chat history yet</div>';
+    return;
+  }
+  
+  list.innerHTML = sessions.map(session => {
+    const isActive = session.session_id === state.currentSessionId;
+    const timeAgo = formatTimeAgo(session.last_message_at || session.created_at);
+    
+    return `
+      <div class="chat-session-item ${isActive ? 'active' : ''}" data-session-id="${session.session_id}">
+        <div class="chat-session-title" data-editable="false">${escapeHtml(session.title)}</div>
+        <div class="chat-session-meta">
+          <span>${session.message_count || 0} messages</span>
+          <span>•</span>
+          <span>${timeAgo}</span>
+          ${session.collection ? `<span class="chat-collection-badge">${escapeHtml(session.collection)}</span>` : ''}
+        </div>
+        <div class="chat-session-actions">
+          <button class="chat-action-btn" data-action="rename" title="Rename">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </button>
+          <button class="chat-action-btn" data-action="delete" title="Delete">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  // Attach event listeners
+  list.querySelectorAll('.chat-session-item').forEach(item => {
+    const sessionId = item.dataset.sessionId;
+    
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('.chat-action-btn')) return;
+      switchToSession(sessionId);
+    });
+    
+    item.querySelector('[data-action="rename"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      startRenameSession(sessionId, item);
+    });
+    
+    item.querySelector('[data-action="delete"]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteSession(sessionId);
+    });
+  });
+}
+
+async function switchToSession(sessionId) {
+  if (sessionId === state.currentSessionId) return;
+  
+  try {
+    const resp = await fetch(`/chat/sessions/${sessionId}/messages`);
+    const data = await resp.json();
+    
+    if (!resp.ok) throw new Error(data.detail || "Failed to load messages");
+    
+    // Clear current chat
+    el("messages").innerHTML = '';
+    state.chatHistory = [];
+    state.currentSessionId = sessionId;
+    
+    // Load messages
+    const messages = data.messages || [];
+    messages.forEach(msg => {
+      addMessage(msg.role, msg.content, msg.sources ? formatSources(msg.sources) : null);
+    });
+    
+    if (messages.length === 0) {
+      el("messages").innerHTML = '<div class="welcome"><h1>What can I help with?</h1></div>';
+    }
+    
+    renderChatSessions();
+  } catch (e) {
+    console.error("Failed to switch session:", e);
+    alert(`Error loading chat: ${e.message}`);
+  }
+}
+
+async function saveMessageToSession(role, content, sources = null) {
+  if (!state.currentSessionId) {
+    const title = role === 'user' ? generateTitleFromMessage(content) : 'New Chat';
+    await createNewSession(title);
+  }
+  
+  if (!state.currentSessionId) return;
+  
+  try {
+    await fetch(`/chat/sessions/${state.currentSessionId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        role,
+        content,
+        sources,
+        retrieval_profile: state.retrievalProfile
+      })
+    });
+    
+    await loadChatSessions();
+  } catch (e) {
+    console.error("Failed to save message:", e);
+  }
+}
+
+function generateTitleFromMessage(message) {
+  const words = message.trim().split(/\s+/);
+  if (words.length <= 6) return message;
+  return words.slice(0, 6).join(' ') + '...';
+}
+
+function formatSources(sources) {
+  if (!sources || !Array.isArray(sources)) return null;
+  return sources.map(s => `${s.doc_name || 'Unknown'} (${s.score?.toFixed(2) || 'N/A'})`).join(', ');
+}
+
+function startRenameSession(sessionId, itemEl) {
+  const titleEl = itemEl.querySelector('.chat-session-title');
+  const currentTitle = titleEl.textContent;
+  
+  titleEl.innerHTML = `<input type="text" class="chat-session-title-input" value="${escapeHtml(currentTitle)}" />`;
+  const input = titleEl.querySelector('input');
+  input.focus();
+  input.select();
+  
+  const finishRename = async () => {
+    const newTitle = input.value.trim();
+    if (newTitle && newTitle !== currentTitle) {
+      await renameSession(sessionId, newTitle);
+    }
+    await loadChatSessions();
+  };
+  
+  input.addEventListener('blur', finishRename);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      input.blur();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      loadChatSessions();
+    }
+  });
+}
+
+async function renameSession(sessionId, newTitle) {
+  try {
+    await fetch(`/chat/sessions/${sessionId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: newTitle })
+    });
+  } catch (e) {
+    console.error("Failed to rename session:", e);
+  }
+}
+
+async function deleteSession(sessionId) {
+  if (!confirm('Delete this chat? This cannot be undone.')) return;
+  
+  try {
+    await fetch(`/chat/sessions/${sessionId}`, { method: "DELETE" });
+    
+    if (sessionId === state.currentSessionId) {
+      state.currentSessionId = null;
+      clearChatHistory();
+    }
+    
+    await loadChatSessions();
+  } catch (e) {
+    console.error("Failed to delete session:", e);
+    alert(`Error deleting chat: ${e.message}`);
+  }
+}
+
+function formatTimeAgo(timestamp) {
+  if (!timestamp) return 'Just now';
+  
+  const now = new Date();
+  const then = new Date(timestamp);
+  const seconds = Math.floor((now - then) / 1000);
+  
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+  return then.toLocaleDateString();
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 async function fetchCollections() {
   const resp = await fetch("/collections");
   const data = await resp.json();
   if (!resp.ok) throw new Error(data.detail || "Failed to load collections");
   return data.collections || [];
+}
+
+async function loadCustomProfiles() {
+  try {
+    const resp = await fetch("/retrieval/profiles");
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.detail || "Failed to load profiles");
+    
+    const profiles = data.profiles || [];
+    const customProfiles = profiles.filter(p => !p.is_system);
+    
+    // Update profile selector with custom profiles
+    const select = el("retrievalProfileSelect");
+    if (!select) return;
+    
+    // Remove old custom options
+    const options = Array.from(select.options);
+    options.forEach(opt => {
+      if (opt.value !== "balanced" && opt.value !== "keyword_heavy" && 
+          opt.value !== "conceptual" && opt.value !== "academic_evidence" && 
+          opt.value !== "custom") {
+        opt.remove();
+      }
+    });
+    
+    // Add custom profiles before "Custom" option
+    const customOption = select.querySelector('option[value="custom"]');
+    customProfiles.forEach(profile => {
+      const opt = document.createElement("option");
+      opt.value = profile.profile_name;
+      opt.textContent = profile.display_name;
+      if (customOption) {
+        select.insertBefore(opt, customOption);
+      } else {
+        select.appendChild(opt);
+      }
+      
+      // Add to descriptions and weights
+      PROFILE_DESCRIPTIONS[profile.profile_name] = profile.description || "Custom saved profile";
+      PROFILE_WEIGHTS[profile.profile_name] = {
+        bm25: profile.bm25_weight,
+        fts: profile.pg_fts_weight,
+        vec: profile.pg_vec_weight,
+      };
+    });
+  } catch (e) {
+    console.error("Failed to load custom profiles:", e);
+  }
 }
 
 async function loadCollections() {
@@ -270,7 +617,7 @@ async function loadCollectionsList() {
   }
 }
 
-function openEditView(collection) {
+async function openEditView(collection) {
   showView("editCollectionView");
   
   // Populate form
@@ -290,6 +637,24 @@ function openEditView(collection) {
   
   // Set active collection for file uploads
   state.collection = collection.name;
+  
+  // Clear any previous file selection
+  const fileInput = el("fileInput");
+  if (fileInput) fileInput.value = "";
+  
+  // Auto-load documents for this collection
+  try {
+    const docs = await loadDocuments();
+    renderDocs(docs);
+  } catch (e) {
+    console.error("Failed to load documents:", e);
+    const docsContainer = el("docs");
+    if (docsContainer) {
+      docsContainer.innerHTML = `<div class="status" style="color: #e74c3c;">Error loading documents: ${e.message}</div>`;
+    }
+  }
+  
+  console.log("Edit view opened for collection:", collection.name);
 }
 
 function currentCollection() {
@@ -299,7 +664,13 @@ function currentCollection() {
 
 async function uploadFile(file) {
   const collection = currentCollection();
-  if (!collection) throw new Error("Pick a collection first");
+  console.log("uploadFile called:", { filename: file.name, collection });
+  
+  if (!collection) {
+    const error = "Pick a collection first";
+    console.error(error);
+    throw new Error(error);
+  }
 
   const fd = new FormData();
   fd.append("collection", collection);
@@ -318,13 +689,36 @@ async function fetchJob(jobId) {
   return data;
 }
 
-async function waitForJob(jobId) {
+async function waitForJobWithProgress(jobId, progressCallback) {
   const start = Date.now();
   const maxMs = 60 * 60 * 1000;
+  let lastStage = "";
 
   while (true) {
     const job = await fetchJob(jobId);
-    setProgress(job.stage, job.current, job.total, job.message, job.logs);
+    
+    // Update progress with detailed stage information
+    const stageEmoji = {
+      "queued": "⏳",
+      "processing": "📄",
+      "embedding": "🧠",
+      "upserting": "💾",
+      "completed": "✅",
+      "failed": "❌"
+    };
+    
+    const emoji = stageEmoji[job.stage] || "⚙️";
+    const displayStage = `${emoji} ${job.stage.charAt(0).toUpperCase() + job.stage.slice(1)}`;
+    
+    if (progressCallback) {
+      progressCallback(displayStage, job.current, job.total, job.message, job.logs);
+    }
+    
+    // Log stage transitions
+    if (job.stage !== lastStage) {
+      console.log(`Job ${jobId}: ${job.stage} (${job.current}/${job.total})`);
+      lastStage = job.stage;
+    }
 
     if (job.status === "completed") return job;
     if (job.status === "failed") {
@@ -336,18 +730,52 @@ async function waitForJob(jobId) {
   }
 }
 
+async function waitForJob(jobId) {
+  return waitForJobWithProgress(jobId, (stage, current, total, message, logs) => {
+    setProgress(stage, current, total, message, logs);
+  });
+}
+
 async function queryRag(question) {
   const collection = currentCollection();
   if (!collection) throw new Error("Pick a collection first");
 
+  // Save user message to session
+  await saveMessageToSession('user', question);
+
   const fd = new FormData();
   fd.append("collection", collection);
   fd.append("query", question);
+  
+  // Add retrieval profile or custom weights
+  if (state.retrievalProfile !== "custom") {
+    fd.append("profile_name", state.retrievalProfile);
+  } else {
+    // Use custom weights
+    fd.append("bm25_weight", state.customWeights.bm25);
+    fd.append("pg_fts_weight", state.customWeights.fts);
+    fd.append("pg_vec_weight", state.customWeights.vec);
+    fd.append("use_reranker", state.useReranker);
+    fd.append("normalize_scores", state.normalizeScores);
+  }
 
-  const resp = await fetch("/query", { method: "POST", body: fd });
+  // Create abort controller for this request
+  state.currentAbortController = new AbortController();
+  
+  const resp = await fetch("/query", { 
+    method: "POST", 
+    body: fd,
+    signal: state.currentAbortController.signal
+  });
   const data = await resp.json();
   if (!resp.ok) throw new Error(data.detail || "Query failed");
-  return data.response;
+  
+  // Save assistant response to session
+  const sources = data.sources || [];
+  await saveMessageToSession('assistant', data.response, sources);
+  
+  state.currentAbortController = null;
+  return data;
 }
 
 async function loadDocuments() {
@@ -370,14 +798,20 @@ async function deleteDocument(docId) {
   return data;
 }
 
-function renderDocs(docs) {
-  const container = el("docs");
+function renderDocsToContainer(docs, container) {
+  if (!container) return;
+  
   container.innerHTML = "";
 
-  if (!docs.length) {
+  if (!docs || !docs.length) {
     const empty = document.createElement("div");
     empty.className = "status";
-    empty.textContent = "No documents indexed in this collection.";
+    empty.innerHTML = `
+      <div style="text-align: center; padding: 20px;">
+        <p style="margin-bottom: 12px;">No documents indexed in this collection.</p>
+        <p style="font-size: 12px; color: var(--text-light);">Upload a file above to get started.</p>
+      </div>
+    `;
     container.appendChild(empty);
     return;
   }
@@ -388,11 +822,13 @@ function renderDocs(docs) {
 
     const title = document.createElement("div");
     title.className = "doc__title";
-    title.textContent = d.filename || d.doc_id;
+    title.textContent = d.filename || d.title || d.doc_id;
 
     const meta = document.createElement("div");
     meta.className = "doc__meta";
-    meta.textContent = `doc_id: ${d.doc_id}`;
+    const fileSize = d.file_size ? ` • ${(d.file_size / 1024).toFixed(1)} KB` : '';
+    const createdAt = d.created_at ? ` • ${new Date(d.created_at).toLocaleDateString()}` : '';
+    meta.textContent = `${d.doc_id.substring(0, 8)}...${fileSize}${createdAt}`;
 
     const actions = document.createElement("div");
     actions.className = "doc__actions";
@@ -401,15 +837,17 @@ function renderDocs(docs) {
     del.className = "btn btn-secondary";
     del.textContent = "Delete";
     del.onclick = async () => {
+      if (!confirm(`Delete "${d.filename || d.title}"?`)) return;
       del.disabled = true;
+      del.textContent = "Deleting...";
       try {
         await deleteDocument(d.doc_id);
         const updated = await loadDocuments();
-        renderDocs(updated);
+        renderDocsToContainer(updated, container);
       } catch (e) {
-        alert(e.message);
-      } finally {
+        alert(`Error deleting document: ${e.message}`);
         del.disabled = false;
+        del.textContent = "Delete";
       }
     };
 
@@ -419,13 +857,290 @@ function renderDocs(docs) {
     card.appendChild(actions);
     container.appendChild(card);
   }
+  
+  // Add count header
+  const countHeader = document.createElement("div");
+  countHeader.style.cssText = "margin-bottom: 12px; font-size: 14px; color: var(--text-light); font-weight: 500;";
+  countHeader.textContent = `${docs.length} document${docs.length !== 1 ? 's' : ''} indexed`;
+  container.insertBefore(countHeader, container.firstChild);
+}
+
+function renderDocs(docs) {
+  const container = el("docs");
+  renderDocsToContainer(docs, container);
+}
+
+// Retrieval Profile Management
+const PROFILE_DESCRIPTIONS = {
+  balanced: "Balanced approach combining keyword matching and semantic understanding. Good general-purpose profile.",
+  keyword_heavy: "Prioritizes exact keyword matching. Best for queries with specific terminology or technical terms.",
+  conceptual: "Emphasizes semantic similarity. Best for conceptual queries and finding related ideas.",
+  academic_evidence: "Optimized for finding empirical evidence and research findings. Balanced with slight semantic preference.",
+  custom: "Uses your saved manual configuration."
+};
+
+const PROFILE_WEIGHTS = {
+  balanced: { bm25: 0.30, fts: 0.20, vec: 0.50 },
+  keyword_heavy: { bm25: 0.60, fts: 0.25, vec: 0.15 },
+  conceptual: { bm25: 0.15, fts: 0.15, vec: 0.70 },
+  academic_evidence: { bm25: 0.25, fts: 0.15, vec: 0.60 },
+};
+
+function normalizeWeights() {
+  const bm25 = parseFloat(el("bm25Weight").value) / 100;
+  const fts = parseFloat(el("ftsWeight").value) / 100;
+  const vec = parseFloat(el("vecWeight").value) / 100;
+  
+  const total = bm25 + fts + vec;
+  if (total === 0) return { bm25: 0.33, fts: 0.33, vec: 0.34 };
+  
+  return {
+    bm25: bm25 / total,
+    fts: fts / total,
+    vec: vec / total,
+  };
+}
+
+function updateWeightDisplays() {
+  const normalized = normalizeWeights();
+  const bm25El = el("bm25WeightValue");
+  const ftsEl = el("ftsWeightValue");
+  const vecEl = el("vecWeightValue");
+  
+  if (bm25El) bm25El.textContent = normalized.bm25.toFixed(2);
+  if (ftsEl) ftsEl.textContent = normalized.fts.toFixed(2);
+  if (vecEl) vecEl.textContent = normalized.vec.toFixed(2);
+  
+  state.customWeights = normalized;
+}
+
+function loadProfileWeights(profileName) {
+  if (profileName === "custom") return;
+  
+  const weights = PROFILE_WEIGHTS[profileName];
+  if (!weights) return;
+  
+  const bm25Slider = el("bm25Weight");
+  const ftsSlider = el("ftsWeight");
+  const vecSlider = el("vecWeight");
+  
+  if (bm25Slider) bm25Slider.value = Math.round(weights.bm25 * 100);
+  if (ftsSlider) ftsSlider.value = Math.round(weights.fts * 100);
+  if (vecSlider) vecSlider.value = Math.round(weights.vec * 100);
+  
+  updateWeightDisplays();
+}
+
+function updateProfileDescription(profileName) {
+  const desc = PROFILE_DESCRIPTIONS[profileName] || "";
+  const descEl = el("profileDescription");
+  if (descEl) {
+    descEl.textContent = desc;
+  }
 }
 
 function wireEvents() {
   // New chat button
-  el("newChatBtn").addEventListener("click", () => {
-    clearChatHistory();
+  const newChatBtn = el("newChatBtn");
+  if (newChatBtn) {
+    newChatBtn.addEventListener("click", () => {
+      state.currentSessionId = null;
+      clearChatHistory();
+    });
+  }
+  
+  // Search chats button
+  const searchChatsBtn = el("searchChatsBtn");
+  if (searchChatsBtn) {
+    searchChatsBtn.addEventListener("click", () => {
+      const searchBox = el("chatSearchBox");
+      if (searchBox) {
+        const isVisible = searchBox.style.display !== "none";
+        searchBox.style.display = isVisible ? "none" : "block";
+        if (!isVisible) {
+          el("chatSearchInput")?.focus();
+        }
+      }
+    });
+  }
+  
+  // Search chats input
+  const searchInput = el("chatSearchInput");
+  if (searchInput) {
+    searchInput.addEventListener("input", (e) => {
+      const query = e.target.value.toLowerCase().trim();
+      filterChatSessions(query);
+    });
+  }
+  
+  // Retrieval profile selector
+  const profileSelect = el("retrievalProfileSelect");
+  if (profileSelect) {
+    profileSelect.addEventListener("change", (e) => {
+      const profileName = e.target.value;
+      state.retrievalProfile = profileName;
+      updateProfileDescription(profileName);
+      loadProfileWeights(profileName);
+    });
+  }
+  
+  // Advanced tuning toggle
+  const advancedBtn = el("advancedTuningBtn");
+  if (advancedBtn) {
+    advancedBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const panel = el("advancedTuningPanel");
+      if (panel) {
+        const isVisible = panel.style.display !== "none";
+        panel.style.display = isVisible ? "none" : "block";
+      }
+    });
+  }
+  
+  // Weight sliders
+  ["bm25Weight", "ftsWeight", "vecWeight"].forEach(id => {
+    el(id).addEventListener("input", updateWeightDisplays);
   });
+  
+  // Method toggles
+  el("methodBM25").addEventListener("change", (e) => {
+    if (!e.target.checked) {
+      el("bm25Weight").value = 0;
+      updateWeightDisplays();
+    }
+  });
+  
+  el("methodFTS").addEventListener("change", (e) => {
+    if (!e.target.checked) {
+      el("ftsWeight").value = 0;
+      updateWeightDisplays();
+    }
+  });
+  
+  el("methodVec").addEventListener("change", (e) => {
+    if (!e.target.checked) {
+      el("vecWeight").value = 0;
+      updateWeightDisplays();
+    }
+  });
+  
+  // Options checkboxes
+  el("normalizeScores").addEventListener("change", (e) => {
+    state.normalizeScores = e.target.checked;
+  });
+  
+  el("useReranker").addEventListener("change", (e) => {
+    state.useReranker = e.target.checked;
+  });
+  
+  el("boostMetadata").addEventListener("change", (e) => {
+    state.boostMetadata = e.target.checked;
+  });
+  
+  // Apply profile button
+  el("applyProfileBtn").addEventListener("click", () => {
+    state.retrievalProfile = "custom";
+    el("retrievalProfileSelect").value = "custom";
+    updateProfileDescription("custom");
+    alert("Custom retrieval settings applied. Your next query will use these settings.");
+  });
+  
+  // Save profile button - open modal
+  const saveProfileBtn = el("saveProfileBtn");
+  if (saveProfileBtn) {
+    saveProfileBtn.addEventListener("click", () => {
+      const normalized = normalizeWeights();
+      
+      // Update modal with current settings
+      const saveBM25 = el("saveBM25Value");
+      const saveFTS = el("saveFTSValue");
+      const saveVec = el("saveVecValue");
+      const saveReranker = el("saveRerankerValue");
+      const saveNormalize = el("saveNormalizeValue");
+      
+      if (saveBM25) saveBM25.textContent = normalized.bm25.toFixed(2);
+      if (saveFTS) saveFTS.textContent = normalized.fts.toFixed(2);
+      if (saveVec) saveVec.textContent = normalized.vec.toFixed(2);
+      if (saveReranker) saveReranker.textContent = state.useReranker ? "On" : "Off";
+      if (saveNormalize) saveNormalize.textContent = state.normalizeScores ? "On" : "Off";
+      
+      openModal("saveProfileModal");
+    });
+  }
+  
+  // Close save profile modal
+  const closeSaveProfileBtn = el("closeSaveProfileBtn");
+  if (closeSaveProfileBtn) {
+    closeSaveProfileBtn.addEventListener("click", () => {
+      closeModal("saveProfileModal");
+    });
+  }
+  
+  const cancelSaveProfileBtn = el("cancelSaveProfileBtn");
+  if (cancelSaveProfileBtn) {
+    cancelSaveProfileBtn.addEventListener("click", () => {
+      closeModal("saveProfileModal");
+    });
+  }
+  
+  // Save profile form submission
+  const saveProfileForm = el("saveProfileForm");
+  if (saveProfileForm) {
+    saveProfileForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      
+      const profileName = el("profileName").value.trim();
+      const displayName = el("profileDisplayName").value.trim();
+      const description = el("profileDesc").value.trim();
+      
+      if (!profileName || !displayName) {
+        alert("Profile name and display name are required");
+        return;
+      }
+      
+      const normalized = normalizeWeights();
+      const profileData = {
+        profile_name: profileName.toLowerCase().replace(/\s+/g, "_"),
+        display_name: displayName,
+        description: description,
+        is_system: false,
+        is_active: true,
+        bm25_weight: normalized.bm25,
+        pg_fts_weight: normalized.fts,
+        pg_vec_weight: normalized.vec,
+        use_reranker: state.useReranker,
+        reranker_model: null,
+        normalize_scores: state.normalizeScores,
+        metadata_boost: state.boostMetadata ? 0.1 : 0.0,
+        citation_graph_boost: 0.0,
+        top_k: 10,
+        bm25_limit: 30,
+        fts_limit: 30,
+        vec_limit: 30,
+      };
+      
+      try {
+        const resp = await fetch("/retrieval/profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profileData),
+        });
+        
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || data.message || "Failed to save profile");
+        
+        closeModal("saveProfileModal");
+        saveProfileForm.reset();
+        
+        // Reload profiles
+        await loadCustomProfiles();
+        
+        alert(`Profile "${displayName}" saved successfully!`);
+      } catch (err) {
+        alert(`Error saving profile: ${err.message}`);
+      }
+    });
+  }
 
   // Collection select
   el("collectionSelect").addEventListener("change", () => {
@@ -591,36 +1306,193 @@ function wireEvents() {
     });
   }
 
-  // Upload form
-  el("uploadForm").addEventListener("submit", async (e) => {
+  // Helper function to handle upload form submission
+  async function handleUploadSubmit(e, fileInputId, statusId, progressWrapId, progressTextId, progressPctId, progressBarId, logsId, docsId) {
     e.preventDefault();
-    const f = el("fileInput").files[0];
-    if (!f) return;
+    e.stopPropagation();
+    
+    console.log("Upload form submitted:", {
+      formId: e.target.id,
+      fileInputId,
+      collection: currentCollection()
+    });
+    
+    const f = el(fileInputId).files[0];
+    if (!f) {
+      console.warn("No file selected");
+      alert("Please select a file to upload");
+      return;
+    }
+    
+    console.log("File selected:", f.name, f.size, "bytes");
 
-    setStatus("Starting upload...");
-    showProgress(true);
-    setProgress("queued", 0, 0, "Queued", []);
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const fileInput = el(fileInputId);
+    
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Uploading...";
+    fileInput.disabled = true;
+
+    // Helper functions for this specific form
+    const setFormStatus = (text) => {
+      const statusEl = el(statusId);
+      if (statusEl) {
+        statusEl.textContent = text || "";
+        if (text.includes("✅") || text.includes("Success")) {
+          statusEl.style.color = "#27ae60";
+          statusEl.style.fontWeight = "600";
+        } else if (text.includes("❌") || text.includes("Error")) {
+          statusEl.style.color = "#e74c3c";
+          statusEl.style.fontWeight = "600";
+        } else {
+          statusEl.style.color = "";
+          statusEl.style.fontWeight = "";
+        }
+      }
+    };
+
+    const showFormProgress = (show) => {
+      const progressEl = el(progressWrapId);
+      if (progressEl) {
+        progressEl.style.display = show ? "block" : "none";
+      }
+    };
+
+    const setFormProgress = (stage, current, total, message, logs) => {
+      const safeTotal = typeof total === "number" && total > 0 ? total : 0;
+      const safeCurrent = typeof current === "number" && current >= 0 ? current : 0;
+      const pct = safeTotal ? Math.min(100, Math.round((safeCurrent / safeTotal) * 100)) : 0;
+
+      const stageLabel = (stage || "").toString();
+      const msg = (message || "").toString();
+      const left = msg ? `${stageLabel}: ${msg}` : stageLabel;
+
+      const textEl = el(progressTextId);
+      const pctEl = el(progressPctId);
+      const barEl = el(progressBarId);
+      const logsEl = el(logsId);
+
+      if (textEl) textEl.textContent = left;
+      if (pctEl) pctEl.textContent = safeTotal ? `${pct}%` : "";
+      if (barEl) barEl.style.width = `${pct}%`;
+
+      if (Array.isArray(logs) && logsEl) {
+        logsEl.textContent = logs.join("\n");
+        logsEl.scrollTop = logsEl.scrollHeight;
+      }
+    };
+
+    setFormStatus(`📤 Uploading "${f.name}"...`);
+    showFormProgress(true);
+    setFormProgress("uploading", 0, 1, "Uploading file to server", []);
+    
     try {
+      console.log("Starting upload for:", f.name);
       const data = await uploadFile(f);
+      console.log("Upload response:", data);
+      
       const jobId = data.job_id;
-      setStatus(`Indexing started (job: ${jobId})`);
-      const job = await waitForJob(jobId);
+      if (!jobId) {
+        throw new Error("No job ID returned from server");
+      }
+      
+      setFormStatus(`⚙️ Processing "${f.name}" - Job ID: ${jobId}`);
+      setFormProgress("processing", 0, 1, "Starting document processing", [`Job ${jobId} created`]);
+      
+      // Wait for job with custom progress updates
+      const job = await waitForJobWithProgress(jobId, setFormProgress);
       const result = job.result || {};
-      setStatus(`Done. Indexed ${result.chunks || ""} chunks.`.trim());
+      const chunks = result.chunks || 0;
+      const filename = result.filename || f.name;
+      
+      setFormStatus(`✅ Success! "${filename}" indexed with ${chunks} chunk${chunks !== 1 ? 's' : ''}`);
+      setFormProgress("completed", 1, 1, "Indexing complete", job.logs || []);
+      
+      // Clear file input
+      fileInput.value = "";
+      
+      // Refresh document list
+      try {
+        const docs = await loadDocuments();
+        if (docsId) {
+          const docsContainer = el(docsId);
+          if (docsContainer) {
+            renderDocsToContainer(docs, docsContainer);
+          }
+        } else {
+          renderDocs(docs);
+        }
+      } catch (e) {
+        console.error("Failed to refresh documents:", e);
+      }
+      
+      // Auto-hide progress after 3 seconds on success
+      setTimeout(() => {
+        showFormProgress(false);
+      }, 3000);
+      
     } catch (err) {
-      setStatus(`Error: ${err.message}`);
+      setFormStatus(`❌ Error: ${err.message}`);
+      setFormProgress("failed", 0, 1, `Failed: ${err.message}`, []);
+      console.error("Upload error:", err);
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Upload & Index";
+      fileInput.disabled = false;
     }
-  });
+  }
 
-  // Load documents
-  el("loadDocs").addEventListener("click", async () => {
-    try {
-      const docs = await loadDocuments();
-      renderDocs(docs);
-    } catch (e) {
-      alert(e.message);
+  // Use event delegation for upload forms to handle forms in modals
+  document.addEventListener("submit", (e) => {
+    console.log("Form submitted:", e.target.id, e.target.className);
+    
+    // Edit collection view upload form
+    if (e.target.id === "uploadForm") {
+      console.log("Handling uploadForm submission");
+      handleUploadSubmit(
+        e, "fileInput", "uploadStatus", "uploadProgressWrap",
+        "uploadProgressText", "uploadProgressPct", "uploadProgressBar", "uploadLogs", "docs"
+      );
+      return;
     }
-  });
+    // File manager modal upload form
+    if (e.target.id === "fileManagerUploadForm") {
+      console.log("Handling fileManagerUploadForm submission");
+      handleUploadSubmit(
+        e, "fileManagerFileInput", "fileManagerUploadStatus", "fileManagerUploadProgressWrap",
+        "fileManagerUploadProgressText", "fileManagerUploadProgressPct", "fileManagerUploadProgressBar",
+        "fileManagerUploadLogs", "fileManagerDocs"
+      );
+      return;
+    }
+  }, true); // Use capture phase to catch it early
+
+  // Load documents button in edit collection view
+  const loadDocsBtn = el("loadDocs");
+  if (loadDocsBtn) {
+    loadDocsBtn.addEventListener("click", async () => {
+      try {
+        const docs = await loadDocuments();
+        renderDocs(docs);
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+  }
+
+  // Load documents button in file manager modal
+  const fileManagerLoadDocsBtn = el("fileManagerLoadDocs");
+  if (fileManagerLoadDocsBtn) {
+    fileManagerLoadDocsBtn.addEventListener("click", async () => {
+      try {
+        const docs = await loadDocuments();
+        const docsContainer = el("fileManagerDocs");
+        renderDocsToContainer(docs, docsContainer);
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+  }
 
   // Chat form with Enter/Shift+Enter support
   const chatInput = el("chatInput");
@@ -642,13 +1514,20 @@ function wireEvents() {
     chatInput.style.height = "auto";
     addMessage("user", text);
 
+    const sendBtn = el("sendBtn");
+    const stopBtn = el("stopBtn");
+    
+    // Show stop button, hide send button
+    sendBtn.style.display = "none";
+    stopBtn.style.display = "flex";
+
     try {
       addMessage("assistant", "Thinking...");
       const messagesEl = el("messages");
       const thinking = messagesEl.lastChild;
 
       const res = await queryRag(text);
-      const answer = res.answer || "";
+      const answer = res.answer || res.response || "";
       const sources = res.sources || [];
       const sourceMeta = sources.length
         ? `Sources: ${sources.slice(0, 3).map(s => `${s.filename || s.doc_id}#${s.chunk_index}`).join(", ")}`
@@ -676,9 +1555,38 @@ function wireEvents() {
       };
       saveChatHistory();
     } catch (err) {
-      addMessage("assistant", `Error: ${err.message}`);
+      if (err.name === 'AbortError') {
+        // Request was cancelled
+        const messagesEl = el("messages");
+        const thinking = messagesEl.lastChild;
+        const content = thinking.querySelector(".msg__content");
+        if (content) {
+          content.textContent = "Request cancelled";
+          content.style.fontStyle = "italic";
+          content.style.color = "var(--text-light)";
+        }
+      } else {
+        addMessage("assistant", `Error: ${err.message}`);
+      }
+    } finally {
+      // Always restore send button
+      sendBtn.style.display = "flex";
+      stopBtn.style.display = "none";
+      state.currentAbortController = null;
     }
   });
+
+  // Stop button handler
+  const stopBtn = el("stopBtn");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (state.currentAbortController) {
+        state.currentAbortController.abort();
+        console.log("Request cancelled by user");
+      }
+    });
+  }
 
   // Auto-resize textarea
   chatInput.addEventListener("input", () => {
@@ -753,8 +1661,39 @@ async function loadDocumentation(docType) {
 }
 
 (async function init() {
-  setActiveCollection("");
-  wireEvents();
-  await loadCollections();
-  loadChatHistory();
+  try {
+    setActiveCollection("");
+    wireEvents();
+    
+    // Load collections (non-blocking)
+    loadCollections().catch(e => {
+      console.error("Failed to load collections:", e);
+    });
+    
+    // Load custom profiles (non-blocking)
+    loadCustomProfiles().catch(e => {
+      console.error("Failed to load custom profiles:", e);
+    });
+    
+    // Load chat sessions (non-blocking)
+    loadChatSessions().catch(e => {
+      console.error("Failed to load chat sessions:", e);
+    });
+    
+    // Load chat history from localStorage (synchronous)
+    try {
+      loadChatHistory();
+    } catch (e) {
+      console.error("Failed to load chat history:", e);
+    }
+    
+    // Initialize retrieval controls
+    updateProfileDescription(state.retrievalProfile);
+    updateWeightDisplays();
+    
+    console.log("App initialized successfully");
+  } catch (e) {
+    console.error("Critical error during initialization:", e);
+    alert("Failed to initialize app. Please refresh the page.");
+  }
 })();
