@@ -5,7 +5,11 @@ from fastapi.templating import Jinja2Templates
 from fastapi import Request
 import uvicorn
 import os
+import json
+import httpx
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
 import json
 import asyncio
 from typing import Any, Dict, List, Optional, Tuple
@@ -15,6 +19,7 @@ import uuid
 
 
 # Import our RAG modules
+from src.provider_config import ProviderSettings, current_settings as _default_settings
 from src.rag_engine import RAGEngine
 from src.document_processor import DocumentProcessor
 from src.vector_store import VectorStore
@@ -72,6 +77,78 @@ hybrid_engine = HybridRetrievalEngine()
 chat_manager = ChatManager(supabase) if supabase else None
 
 JOBS: Dict[str, Dict[str, Any]] = {}
+SETTINGS_FILE = DATA_DIR / "settings.json"
+
+# ── Provider settings (runtime-mutable) ──────────────────────────────────────
+provider_settings: ProviderSettings = _default_settings
+
+
+def _load_settings_from_file() -> None:
+    """Overlay file-persisted settings on top of env defaults."""
+    global provider_settings
+    if SETTINGS_FILE.exists():
+        try:
+            data = json.loads(SETTINGS_FILE.read_text())
+            for field in ProviderSettings.__dataclass_fields__:
+                if field in data and data[field] is not None:
+                    setattr(provider_settings, field, data[field])
+        except Exception as e:
+            logger.warning(f"Could not load settings file: {e}")
+
+
+def _save_settings_to_file(settings: ProviderSettings) -> None:
+    import dataclasses
+    SETTINGS_FILE.write_text(json.dumps(dataclasses.asdict(settings), indent=2))
+
+
+def _apply_provider_settings(settings: ProviderSettings) -> None:
+    """Reinitialise the global LLM and embedding clients from updated settings."""
+    global llm_client, embedding_generator, rag_engine
+    from src.lm_studio_client import LMStudioClient
+    from src.embeddings import EmbeddingGenerator
+
+    # Update env vars so existing constructors pick them up
+    if settings.chat_provider == "openai":
+        os.environ["LM_STUDIO_BASE_URL"] = settings.chat_base_url or "https://api.openai.com/v1"
+        os.environ["LM_STUDIO_API_KEY"] = settings.chat_api_key or ""
+        os.environ["LM_STUDIO_MODEL"] = settings.chat_model or "gpt-4o-mini"
+        os.environ.pop("OPENAI_API_KEY", None)
+        os.environ["OPENAI_API_KEY"] = settings.chat_api_key or ""
+    elif settings.chat_provider == "ollama":
+        os.environ["LM_STUDIO_BASE_URL"] = (settings.chat_base_url or "http://localhost:11434") + "/v1"
+        os.environ["LM_STUDIO_API_KEY"] = "ollama"
+        os.environ["LM_STUDIO_MODEL"] = settings.chat_model or ""
+    else:  # lm_studio
+        os.environ["LM_STUDIO_BASE_URL"] = settings.chat_base_url or "http://localhost:1234/v1"
+        os.environ["LM_STUDIO_API_KEY"] = settings.chat_api_key or "lm-studio"
+        os.environ["LM_STUDIO_MODEL"] = settings.chat_model or ""
+
+    if settings.embedding_provider == "openai":
+        os.environ.pop("OLLAMA_EMBEDDING_MODEL", None)
+        os.environ.pop("LM_STUDIO_EMBEDDING_MODEL", None)
+        os.environ["OPENAI_EMBEDDING_MODEL"] = settings.embedding_model or "text-embedding-3-small"
+        os.environ["LM_STUDIO_BASE_URL"] = settings.embedding_base_url or "https://api.openai.com/v1"
+        os.environ["LM_STUDIO_API_KEY"] = settings.embedding_api_key or ""
+        os.environ["LM_STUDIO_EMBEDDING_MODEL"] = settings.embedding_model or "text-embedding-3-small"
+    elif settings.embedding_provider == "ollama":
+        os.environ.pop("LM_STUDIO_EMBEDDING_MODEL", None)
+        os.environ["OLLAMA_BASE_URL"] = settings.embedding_base_url or "http://localhost:11434"
+        os.environ["OLLAMA_EMBEDDING_MODEL"] = settings.embedding_model or "mxbai-embed-large"
+    elif settings.embedding_provider == "lm_studio":
+        os.environ.pop("OLLAMA_EMBEDDING_MODEL", None)
+        os.environ["LM_STUDIO_EMBEDDING_MODEL"] = settings.embedding_model or ""
+    else:  # local
+        os.environ.pop("OLLAMA_EMBEDDING_MODEL", None)
+        os.environ.pop("LM_STUDIO_EMBEDDING_MODEL", None)
+
+    llm_client = LMStudioClient()
+    embedding_generator = EmbeddingGenerator()
+    rag_engine = RAGEngine(vector_store, embedding_generator, doc_processor, llm_client=llm_client)
+    logger.info(f"Provider settings applied: chat={settings.chat_provider}, embedding={settings.embedding_provider}")
+
+
+# Load persisted settings at startup
+_load_settings_from_file()
 
 
 def _job_log(job_id: str, message: str) -> None:
@@ -1517,10 +1594,64 @@ def markdown_to_html(markdown_text: str) -> str:
     return html
 
 
+@app.on_event("startup")
+async def check_qdrant_on_startup():
+    qdrant_url = os.getenv("QDRANT_URL") or "http://localhost:6333"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{qdrant_url}/healthz")
+        if resp.status_code == 200:
+            logger.info(f"Qdrant is healthy at {qdrant_url}")
+        else:
+            logger.warning(f"Qdrant at {qdrant_url} returned HTTP {resp.status_code} — vector search may fail")
+    except Exception as e:
+        logger.warning(f"Qdrant not reachable at {qdrant_url}: {e} — vector search will fail until Qdrant is started")
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "message": "Local RAG system is running"}
+    qdrant_url = os.getenv("QDRANT_URL") or "http://localhost:6333"
+    qdrant_ok = False
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            r = await client.get(f"{qdrant_url}/healthz")
+        qdrant_ok = r.status_code == 200
+    except Exception:
+        pass
+    return {"status": "healthy", "message": "Local RAG system is running", "qdrant": "ok" if qdrant_ok else "unavailable"}
+
+
+@app.get("/api/settings")
+async def get_settings():
+    """Return current provider settings (API keys masked)."""
+    import dataclasses
+    data = dataclasses.asdict(provider_settings)
+    for key in ("chat_api_key", "embedding_api_key"):
+        if data.get(key):
+            data[key] = data[key][:8] + "..." if len(data[key]) > 8 else "***"
+    return data
+
+
+@app.post("/api/settings")
+async def save_settings(payload: Dict[str, Any]):
+    """Update provider settings and reinitialise clients."""
+    global provider_settings
+    import dataclasses
+
+    current = dataclasses.asdict(provider_settings)
+    for field in ProviderSettings.__dataclass_fields__:
+        if field in payload:
+            val = payload[field]
+            # Don't overwrite stored keys with masked placeholders
+            if isinstance(val, str) and val.endswith("..."):
+                continue
+            current[field] = val if val != "" else None
+
+    provider_settings = ProviderSettings(**current)
+    _save_settings_to_file(provider_settings)
+    _apply_provider_settings(provider_settings)
+    return {"status": "success", "message": "Settings saved and applied"}
 
 # Chat Session Endpoints
 @app.post("/chat/sessions")

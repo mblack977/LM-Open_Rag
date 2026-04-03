@@ -1626,6 +1626,95 @@ function wireEvents() {
       await loadDocumentation("implementation");
     });
   }
+
+  // Settings modal
+  const settingsBtn = el("settingsBtn");
+  const closeSettingsBtn = el("closeSettingsBtn");
+  const cancelSettingsBtn = el("cancelSettingsBtn");
+  const settingsForm = el("settingsForm");
+
+  function updateSettingsFieldVisibility() {
+    const chatProv = el("chatProvider").value;
+    const embProv = el("embeddingProvider").value;
+
+    // Chat: show API key for openai, base URL for local providers
+    el("chatApiKeyGroup").style.display = chatProv === "openai" ? "block" : "none";
+    el("chatBaseUrlGroup").style.display = chatProv !== "openai" ? "block" : "none";
+
+    // Embedding: show/hide fields per provider
+    const embIsLocal = embProv === "local";
+    el("embeddingModelGroup").style.display = embIsLocal ? "none" : "block";
+    el("embeddingApiKeyGroup").style.display = embProv === "openai" ? "block" : "none";
+    el("embeddingBaseUrlGroup").style.display = (embProv === "ollama" || embProv === "lm_studio") ? "block" : "none";
+  }
+
+  async function loadSettingsIntoForm() {
+    try {
+      const res = await fetch("/api/settings");
+      if (!res.ok) return;
+      const s = await res.json();
+      el("chatProvider").value = s.chat_provider || "lm_studio";
+      el("chatModel").value = s.chat_model || "";
+      el("chatApiKey").value = "";  // never pre-fill keys
+      el("chatBaseUrl").value = s.chat_base_url || "";
+      el("embeddingProvider").value = s.embedding_provider || "local";
+      el("embeddingModel").value = s.embedding_model || "";
+      el("embeddingApiKey").value = "";
+      el("embeddingBaseUrl").value = s.embedding_base_url || "";
+      updateSettingsFieldVisibility();
+    } catch (e) {
+      console.error("Failed to load settings:", e);
+    }
+  }
+
+  if (settingsBtn) {
+    settingsBtn.addEventListener("click", async () => {
+      await loadSettingsIntoForm();
+      openModal("settingsModal");
+    });
+  }
+
+  if (closeSettingsBtn) closeSettingsBtn.addEventListener("click", () => closeModal("settingsModal"));
+  if (cancelSettingsBtn) cancelSettingsBtn.addEventListener("click", () => closeModal("settingsModal"));
+
+  el("chatProvider").addEventListener("change", updateSettingsFieldVisibility);
+  el("embeddingProvider").addEventListener("change", updateSettingsFieldVisibility);
+
+  if (settingsForm) {
+    settingsForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const statusEl = el("settingsSaveStatus");
+      statusEl.textContent = "Saving...";
+      statusEl.style.color = "";
+
+      const payload = {
+        chat_provider: el("chatProvider").value,
+        chat_model: el("chatModel").value.trim() || null,
+        chat_api_key: el("chatApiKey").value.trim() || null,
+        chat_base_url: el("chatBaseUrl").value.trim() || null,
+        embedding_provider: el("embeddingProvider").value,
+        embedding_model: el("embeddingModel").value.trim() || null,
+        embedding_api_key: el("embeddingApiKey").value.trim() || null,
+        embedding_base_url: el("embeddingBaseUrl").value.trim() || null,
+      };
+
+      try {
+        const res = await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Save failed");
+        statusEl.textContent = "✅ Saved and applied";
+        statusEl.style.color = "#27ae60";
+        setTimeout(() => closeModal("settingsModal"), 1200);
+      } catch (err) {
+        statusEl.textContent = `❌ ${err.message}`;
+        statusEl.style.color = "#e74c3c";
+      }
+    });
+  }
 }
 
 function setActiveTab(tabName) {

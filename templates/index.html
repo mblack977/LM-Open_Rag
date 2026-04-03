@@ -176,6 +176,13 @@
           </svg>
           Documentation
         </a>
+        <button id="settingsBtn" class="link-btn" style="margin-bottom: 8px; display: flex; align-items: center; background: none; border: none; cursor: pointer; width: 100%; text-align: left; padding: 0; color: var(--text);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px; flex-shrink: 0;">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          Settings
+        </button>
         <div class="footer-info">HerbGPT</div>
       </div>
     </aside>
@@ -432,6 +439,83 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=10"></script>
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal" style="display:none;">
+      <div class="modal__overlay"></div>
+      <div class="modal__content" style="max-width: 560px; width: 100%;">
+        <div class="modal__header">
+          <h2>Settings</h2>
+          <button id="closeSettingsBtn" class="modal__close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal__body">
+          <form id="settingsForm">
+
+            <!-- Chat Provider -->
+            <div class="settings-section">
+              <div class="settings-section__title">Chat Model</div>
+              <div class="form-group">
+                <label for="chatProvider">Provider</label>
+                <select id="chatProvider" class="select-minimal">
+                  <option value="openai">OpenAI</option>
+                  <option value="ollama">Ollama (local)</option>
+                  <option value="lm_studio">LM Studio (local)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="chatModel">Model name</label>
+                <input id="chatModel" class="input" placeholder="e.g. gpt-4o-mini / llama3 / qwen2.5:7b" />
+              </div>
+              <div class="form-group settings-field--cloud" id="chatApiKeyGroup">
+                <label for="chatApiKey">API Key</label>
+                <input id="chatApiKey" class="input" type="password" placeholder="sk-..." autocomplete="off" />
+              </div>
+              <div class="form-group settings-field--local" id="chatBaseUrlGroup">
+                <label for="chatBaseUrl">Base URL</label>
+                <input id="chatBaseUrl" class="input" placeholder="http://localhost:11434" />
+              </div>
+            </div>
+
+            <!-- Embedding Provider -->
+            <div class="settings-section">
+              <div class="settings-section__title">Embedding Model</div>
+              <div class="form-group">
+                <label for="embeddingProvider">Provider</label>
+                <select id="embeddingProvider" class="select-minimal">
+                  <option value="openai">OpenAI</option>
+                  <option value="ollama">Ollama (local)</option>
+                  <option value="lm_studio">LM Studio (local)</option>
+                  <option value="local">Local (sentence-transformers)</option>
+                </select>
+              </div>
+              <div class="form-group" id="embeddingModelGroup">
+                <label for="embeddingModel">Model name</label>
+                <input id="embeddingModel" class="input" placeholder="e.g. text-embedding-3-small / mxbai-embed-large" />
+              </div>
+              <div class="form-group" id="embeddingApiKeyGroup">
+                <label for="embeddingApiKey">API Key</label>
+                <input id="embeddingApiKey" class="input" type="password" placeholder="sk-..." autocomplete="off" />
+              </div>
+              <div class="form-group" id="embeddingBaseUrlGroup">
+                <label for="embeddingBaseUrl">Base URL</label>
+                <input id="embeddingBaseUrl" class="input" placeholder="http://localhost:11434" />
+              </div>
+            </div>
+
+            <div id="settingsSaveStatus" class="status" style="margin-bottom: 8px;"></div>
+            <div style="display: flex; gap: 8px;">
+              <button type="submit" class="btn btn-primary" style="flex: 1;">Save & Apply</button>
+              <button type="button" id="cancelSettingsBtn" class="btn btn-secondary">Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+  <script src="/static/app.js?v=11"></script>
 </body>
 </html>
