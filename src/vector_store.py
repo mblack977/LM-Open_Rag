@@ -1,7 +1,7 @@
 import asyncio
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import httpx
 from qdrant_client import QdrantClient
@@ -21,6 +21,11 @@ class VectorStore:
         self._client = QdrantClient(url=self._qdrant_url, api_key=self._api_key)
         self._data_dir = Path(data_dir) if data_dir is not None else None
 
+        # In-memory caches — eliminates repeated Qdrant HTTP round-trips per query.
+        self._known_collections: Set[str] = set()
+        self._vector_name_cache: Dict[str, Optional[str]] = {}
+        self._vector_size_cache: Dict[Tuple[str, Optional[str]], Optional[int]] = {}
+
     async def list_collections(self) -> List[str]:
         return await asyncio.to_thread(self._list_collections_sync)
 
@@ -32,14 +37,27 @@ class VectorStore:
         await asyncio.to_thread(self._ensure_collection_sync, collection, vector_size)
 
     async def get_vector_name(self, collection: str) -> Optional[str]:
-        return await asyncio.to_thread(self._get_vector_name_sync, collection)
+        if collection in self._vector_name_cache:
+            return self._vector_name_cache[collection]
+        name = await asyncio.to_thread(self._get_vector_name_sync, collection)
+        self._vector_name_cache[collection] = name
+        return name
 
     async def get_vector_size(self, collection: str, vector_name: Optional[str]) -> Optional[int]:
-        return await asyncio.to_thread(self._get_vector_size_sync, collection, vector_name)
+        cache_key: Tuple[str, Optional[str]] = (collection, vector_name)
+        if cache_key in self._vector_size_cache:
+            return self._vector_size_cache[cache_key]
+        size = await asyncio.to_thread(self._get_vector_size_sync, collection, vector_name)
+        if size is not None:
+            self._vector_size_cache[cache_key] = size
+        return size
 
     def _ensure_collection_sync(self, collection: str, vector_size: int) -> None:
+        if collection in self._known_collections:
+            return
         existing = set(self._list_collections_sync())
-        if collection in existing:
+        self._known_collections.update(existing)
+        if collection in self._known_collections:
             return
 
         self._client.create_collection(
@@ -48,7 +66,6 @@ class VectorStore:
                 "text": qm.VectorParams(size=vector_size, distance=qm.Distance.COSINE),
             },
         )
-
         # Payload indexes for faster filtering
         self._client.create_payload_index(
             collection_name=collection,
@@ -60,6 +77,9 @@ class VectorStore:
             field_name="filename",
             field_schema=qm.PayloadSchemaType.KEYWORD,
         )
+        self._known_collections.add(collection)
+        # Clear any stale vector-name/size entries from before the collection existed.
+        self._vector_name_cache.pop(collection, None)
 
     def _get_collection_json_sync(self, collection: str) -> Dict[str, Any]:
         """Fetch raw collection info from Qdrant REST API.

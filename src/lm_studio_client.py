@@ -43,7 +43,7 @@ class LMStudioClient:
         self._model = models[0].get("id") or "local-model"
         return self._model
 
-    async def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2, max_tokens: int = 800) -> str:
+    async def chat(self, messages: List[Dict[str, str]], temperature: float = 0.2, max_tokens: int = 2000) -> str:
         url = f"{self._base_url}/chat/completions"
         model = await self._resolve_model()
         headers = {

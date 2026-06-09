@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document & Evaluation Dashboard</title>
+    <link rel="stylesheet" href="/static/dashboard.css?v=3">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Header -->
+        <header class="dashboard-header">
+            <h1>📊 Document & Evaluation Dashboard</h1>
+            <div class="header-controls">
+                <select id="collectionFilter" class="control-select">
+                    <option value="">All Collections</option>
+                </select>
+                <button id="refreshBtn" class="btn btn-primary">🔄 Refresh</button>
+                <a href="/" class="btn btn-secondary">← Back to Chat</a>
+            </div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="collections">📁 Collections</button>
+            <button class="tab-btn" data-tab="documents">📚 Documents</button>
+            <button class="tab-btn" data-tab="ingestion">⚙️ Ingestion</button>
+            <button class="tab-btn" data-tab="analytics">📈 Analytics</button>
+            <button class="tab-btn" data-tab="evaluation">⭐ Evaluation</button>
+        </nav>
+
+        <!-- Tab Content -->
+        <div class="tab-content">
+            <!-- Collections Tab -->
+            <div id="collections-tab" class="tab-pane active">
+                <div class="tab-header">
+                    <h2>Collections</h2>
+                    <div class="tab-controls">
+                        <button id="createCollectionBtn" class="btn btn-success">+ New Collection</button>
+                    </div>
+                </div>
+
+                <div id="collectionsGrid" class="collections-grid">
+                    <p class="loading">Loading collections...</p>
+                </div>
+            </div>
+
+            <!-- Documents Tab -->
+            <div id="documents-tab" class="tab-pane">
+                <div class="tab-header">
+                    <h2>Document Library</h2>
+                    <div class="tab-controls">
+                        <button id="createDocBtn" class="btn btn-success">+ New Document</button>
+                        <button id="uploadDocBtn" class="btn btn-primary">📤 Upload PDF</button>
+                    </div>
+                </div>
+
+                <div class="filters">
+                    <select id="statusFilter" class="filter-select">
+                        <option value="">All Statuses</option>
+                        <option value="not_uploaded">Not Uploaded</option>
+                        <option value="queued">Queued</option>
+                        <option value="processing">Processing</option>
+                        <option value="complete">Complete</option>
+                        <option value="failed">Failed</option>
+                    </select>
+                    <select id="typeFilter" class="filter-select">
+                        <option value="">All Types</option>
+                        <option value="article">Article</option>
+                        <option value="report">Report</option>
+                        <option value="thesis">Thesis</option>
+                        <option value="policy">Policy</option>
+                    </select>
+                    <input type="text" id="searchInput" class="filter-input" placeholder="Search documents...">
+                </div>
+
+                <div id="documentsTable" class="data-table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Type</th>
+                                <th>Author</th>
+                                <th>Year</th>
+                                <th>PDF</th>
+                                <th>Status</th>
+                                <th>Retrieved</th>
+                                <th>Cited</th>
+                                <th>Avg Score</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="documentsTableBody">
+                            <tr><td colspan="10" class="loading">Loading documents...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Ingestion Tab -->
+            <div id="ingestion-tab" class="tab-pane">
+                <div class="tab-header">
+                    <h2>Ingestion Queue</h2>
+                </div>
+
+                <div class="ingestion-sections">
+                    <div class="ingestion-section">
+                        <h3>⏳ Queued (<span id="queuedCount">0</span>)</h3>
+                        <div id="queuedJobs" class="job-list"></div>
+                    </div>
+
+                    <div class="ingestion-section">
+                        <h3>⚡ Processing (<span id="processingCount">0</span>)</h3>
+                        <div id="processingJobs" class="job-list"></div>
+                    </div>
+
+                    <div class="ingestion-section">
+                        <h3>✅ Complete (<span id="completeCount">0</span>)</h3>
+                        <div id="completeJobs" class="job-list"></div>
+                    </div>
+
+                    <div class="ingestion-section">
+                        <h3>❌ Failed (<span id="failedCount">0</span>)</h3>
+                        <div id="failedJobs" class="job-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analytics Tab -->
+            <div id="analytics-tab" class="tab-pane">
+                <div class="tab-header">
+                    <h2>Performance Analytics</h2>
+                </div>
+
+                <div class="analytics-grid">
+                    <!-- Summary Cards -->
+                    <div class="analytics-section">
+                        <h3>📊 Summary</h3>
+                        <div class="stats-cards">
+                            <div class="stat-card">
+                                <div class="stat-value" id="totalDocs">-</div>
+                                <div class="stat-label">Total Documents</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="totalQueries">-</div>
+                                <div class="stat-label">Total Queries</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="avgScore">-</div>
+                                <div class="stat-label">Avg Quality Score</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="avgResponseTime">-</div>
+                                <div class="stat-label">Avg Response Time</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Top Documents -->
+                    <div class="analytics-section">
+                        <h3>🏆 Most Retrieved Documents</h3>
+                        <div id="topRetrievedDocs" class="ranking-list"></div>
+                    </div>
+
+                    <div class="analytics-section">
+                        <h3>📖 Most Cited Documents</h3>
+                        <div id="topCitedDocs" class="ranking-list"></div>
+                    </div>
+
+                    <!-- Retrieval Mode Performance -->
+                    <div class="analytics-section full-width">
+                        <h3>🔍 Retrieval Mode Performance</h3>
+                        <div id="retrievalModeStats" class="comparison-table"></div>
+                    </div>
+
+                    <!-- Model Comparison -->
+                    <div class="analytics-section full-width">
+                        <h3>🤖 LLM Model Comparison</h3>
+                        <div id="modelComparison" class="comparison-table"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Evaluation Tab -->
+            <div id="evaluation-tab" class="tab-pane">
+                <div class="tab-header">
+                    <h2>Query Evaluations</h2>
+                </div>
+
+                <div id="recentQueryRuns" class="query-runs-list">
+                    <p class="loading">Loading recent queries...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <!-- Create Document Modal -->
+    <div id="createDocModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Create New Document</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="createDocForm">
+                    <div class="form-group">
+                        <label>Title *</label>
+                        <input type="text" name="title" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Document Type</label>
+                        <select name="document_type">
+                            <option value="">Select type...</option>
+                            <option value="article">Article</option>
+                            <option value="report">Report</option>
+                            <option value="thesis">Thesis</option>
+                            <option value="policy">Policy</option>
+                            <option value="book">Book</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Author</label>
+                        <input type="text" name="author">
+                    </div>
+                    <div class="form-group">
+                        <label>Year</label>
+                        <input type="number" name="year" min="1900" max="2100">
+                    </div>
+                    <div class="form-group">
+                        <label>DOI</label>
+                        <input type="text" name="doi">
+                    </div>
+                    <div class="form-group">
+                        <label>Abstract</label>
+                        <textarea name="abstract" rows="4"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Notes</label>
+                        <textarea name="notes" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>APA 7 Reference</label>
+                        <textarea name="apa7_reference" rows="2" placeholder="e.g., Smith, J. (2023). Article title. Journal Name, 115(3), 456-478. https://doi.org/10.1234/example"></textarea>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="submit" class="btn btn-primary">Create</button>
+                        <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Evaluation Modal -->
+    <div id="evaluationModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Evaluate Query Response</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="queryContext" class="query-context"></div>
+                <form id="evaluationForm">
+                    <input type="hidden" name="query_run_id">
+                    
+                    <div class="form-group">
+                        <label>Overall Quality (1-5)</label>
+                        <div class="star-rating">
+                            <span class="star" data-value="1">★</span>
+                            <span class="star" data-value="2">★</span>
+                            <span class="star" data-value="3">★</span>
+                            <span class="star" data-value="4">★</span>
+                            <span class="star" data-value="5">★</span>
+                        </div>
+                        <input type="hidden" name="overall_score">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Accuracy (1-5)</label>
+                        <input type="range" name="accuracy_score" min="1" max="5" value="3">
+                        <span class="range-value">3</span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Relevance (1-5)</label>
+                        <input type="range" name="relevance_score" min="1" max="5" value="3">
+                        <span class="range-value">3</span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Completeness (1-5)</label>
+                        <input type="range" name="completeness_score" min="1" max="5" value="3">
+                        <span class="range-value">3</span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" name="hallucination_flag">
+                            Contains hallucinations or errors
+                        </label>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Feedback (optional)</label>
+                        <textarea name="feedback_text" rows="3"></textarea>
+                    </div>
+                    
+                    <div class="modal-actions">
+                        <button type="submit" class="btn btn-primary">Submit Evaluation</button>
+                        <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Collection Modal -->
+    <div id="createCollectionModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Create New Collection</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="createCollectionForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label>Collection Name *</label>
+                        <input type="text" name="name" required placeholder="e.g., research-papers">
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea name="description" rows="3" placeholder="What is this collection for?"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Cover Image (optional)</label>
+                        <input type="file" name="image" accept="image/*">
+                    </div>
+                    <div class="modal-actions">
+                        <button type="submit" class="btn btn-primary">Create Collection</button>
+                        <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Collection Detail Modal -->
+    <div id="collectionDetailModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h2 id="collectionDetailTitle">Collection Details</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="collection-detail-header">
+                    <div class="collection-info">
+                        <p id="collectionDetailDescription"></p>
+                        <p class="collection-stats">
+                            <span id="collectionDocCount">0 documents</span> • 
+                            <span id="collectionSize">0 MB</span>
+                        </p>
+                    </div>
+                    <div class="collection-actions">
+                        <button id="addDocumentBtn" class="btn btn-success">+ Add Document</button>
+                    </div>
+                </div>
+
+                <!-- Add Document Interface (Collapsed by default) -->
+                <div id="dashboardAddDocumentInterface" class="add-document-interface" style="display:none; margin: 20px 0; padding: 20px; background: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6;">
+                    <!-- Tabs -->
+                    <div class="docs-tabs" style="display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 2px solid #dee2e6;">
+                        <button id="tabDashboardUploadPdf" class="docs-tab docs-tab--active" style="padding: 10px 20px; background: none; border: none; border-bottom: 3px solid #10b981; cursor: pointer; font-weight: 600;">Upload PDF</button>
+                        <button id="tabDashboardAddManual" class="docs-tab" style="padding: 10px 20px; background: none; border: none; border-bottom: 3px solid transparent; cursor: pointer;">Add Manually</button>
+                        <button id="tabDashboardImportCsv" class="docs-tab" style="padding: 10px 20px; background: none; border: none; border-bottom: 3px solid transparent; cursor: pointer;">Import CSV</button>
+                        <button id="tabDashboardImportRis" class="docs-tab" style="padding: 10px 20px; background: none; border: none; border-bottom: 3px solid transparent; cursor: pointer;">Import RIS</button>
+                    </div>
+
+                    <!-- Tab 1: Upload PDF -->
+                    <div id="dashboardUploadPdfTab" class="tab-content">
+                        <p style="color: #6b7280; margin-bottom: 16px;">Upload a PDF file and the system will automatically extract metadata and index the document.</p>
+                        <form id="dashboardUploadPdfForm">
+                            <div style="margin-bottom: 16px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Select PDF File *</label>
+                                <input id="dashboardUploadPdfFile" type="file" accept=".pdf" required style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px;" />
+                            </div>
+                            <div id="dashboardUploadPdfStatus" style="margin-bottom: 12px;"></div>
+                            <div id="dashboardUploadPdfProgressWrap" style="display:none; margin-bottom: 16px;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                    <span id="dashboardUploadPdfProgressText">Uploading...</span>
+                                    <span id="dashboardUploadPdfProgressPct">0%</span>
+                                </div>
+                                <div style="width: 100%; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden;">
+                                    <div id="dashboardUploadPdfProgressBar" style="height: 100%; background: #10b981; width: 0%; transition: width 0.3s;"></div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button type="submit" class="btn btn-primary">Upload & Index</button>
+                                <button type="button" class="btn btn-secondary" onclick="document.getElementById('dashboardAddDocumentInterface').style.display='none'">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Tab 2: Add Manually -->
+                    <div id="dashboardAddManualTab" class="tab-content" style="display:none;">
+                        <p style="color: #6b7280; margin-bottom: 16px;">Enter document details manually. You can attach a PDF file later.</p>
+                        <form id="dashboardAddManualForm">
+                            <div style="margin-bottom: 16px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Title *</label>
+                                <input id="dashboardManualTitle" type="text" placeholder="Document title" required style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px;" />
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Author</label>
+                                <input id="dashboardManualAuthor" type="text" placeholder="Author name(s)" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px;" />
+                            </div>
+                            <div style="display: flex; gap: 16px; margin-bottom: 16px;">
+                                <div style="flex: 1;">
+                                    <label style="display: block; margin-bottom: 8px; font-weight: 500;">Year</label>
+                                    <input id="dashboardManualYear" type="number" placeholder="2023" min="1900" max="2100" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px;" />
+                                </div>
+                                <div style="flex: 1;">
+                                    <label style="display: block; margin-bottom: 8px; font-weight: 500;">Document Type</label>
+                                    <select id="dashboardManualDocType" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px;">
+                                        <option value="">Select type...</option>
+                                        <option value="journal_article">Journal Article</option>
+                                        <option value="book">Book</option>
+                                        <option value="book_chapter">Book Chapter</option>
+                                        <option value="conference_paper">Conference Paper</option>
+                                        <option value="thesis">Thesis</option>
+                                        <option value="report">Report</option>
+                                        <option value="other">Other</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">DOI</label>
+                                <input id="dashboardManualDoi" type="text" placeholder="10.1234/example" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px;" />
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Abstract</label>
+                                <textarea id="dashboardManualAbstract" placeholder="Document abstract or summary" rows="4" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px;"></textarea>
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Notes</label>
+                                <textarea id="dashboardManualNotes" placeholder="Your notes about this document" rows="3" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px;"></textarea>
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Tags (comma-separated)</label>
+                                <input id="dashboardManualTags" type="text" placeholder="education, psychology, research" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px;" />
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">APA 7 Reference</label>
+                                <textarea id="dashboardManualApa7" placeholder="e.g., Smith, J. (2023). Article title. Journal Name, 115(3), 456-478. https://doi.org/10.1234/example" rows="2" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px;"></textarea>
+                            </div>
+                            <div id="dashboardAddManualStatus" style="margin-bottom: 12px;"></div>
+                            <div style="display: flex; gap: 8px;">
+                                <button type="submit" class="btn btn-primary">Save Document</button>
+                                <button type="button" class="btn btn-secondary" onclick="document.getElementById('dashboardAddDocumentInterface').style.display='none'">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Tab 3: Import CSV -->
+                    <div id="dashboardImportCsvTab" class="tab-content" style="display:none;">
+                        <p style="color: #6b7280; margin-bottom: 16px;">Import multiple documents from a CSV file. Documents without a file_path will be created with status "not_uploaded".</p>
+                        <form id="dashboardImportCsvForm">
+                            <div style="margin-bottom: 16px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Select CSV File *</label>
+                                <input id="dashboardImportCsvFile" type="file" accept=".csv" required style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px;" />
+                            </div>
+                            <div style="padding: 12px; background: #f3f4f6; border-radius: 4px; margin-bottom: 16px;">
+                                <strong>CSV Format:</strong> title, author, year, document_type, doi, abstract, notes, tags, filename, apa7_reference
+                                <br>
+                                <a href="/static/document_import_template.csv" download style="color: #10b981; text-decoration: none; margin-top: 8px; display: inline-block;">📥 Download CSV Template</a>
+                            </div>
+                            <div id="dashboardImportCsvStatus" style="margin-bottom: 12px;"></div>
+                            <div id="dashboardImportCsvResults" style="display:none; margin-bottom: 16px; padding: 16px; background: white; border-radius: 4px; border: 1px solid #dee2e6;">
+                                <h4 style="margin: 0 0 12px 0;">Import Summary</h4>
+                                <div style="display: flex; gap: 16px; margin-bottom: 12px;">
+                                    <div style="padding: 8px 12px; background: #d1fae5; color: #065f46; border-radius: 4px;">
+                                        <span>Imported:</span>
+                                        <strong id="dashboardImportSuccessCount">0</strong>
+                                    </div>
+                                    <div style="padding: 8px 12px; background: #fee2e2; color: #991b1b; border-radius: 4px;">
+                                        <span>Errors:</span>
+                                        <strong id="dashboardImportErrorCount">0</strong>
+                                    </div>
+                                </div>
+                                <div id="dashboardImportErrorList" style="max-height: 200px; overflow-y: auto;"></div>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button type="submit" class="btn btn-primary">Import Documents</button>
+                                <button type="button" class="btn btn-secondary" onclick="document.getElementById('dashboardAddDocumentInterface').style.display='none'">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Tab 4: Import RIS -->
+                    <div id="dashboardImportRisTab" class="tab-content" style="display:none;">
+                        <p style="color: #6b7280; margin-bottom: 16px;">Import bibliographic records from a RIS file. Each record becomes a document entry. CrossRef enrichment runs automatically for every imported record.</p>
+                        <form id="dashboardImportRisForm">
+                            <div style="margin-bottom: 16px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 500;">Select RIS File *</label>
+                                <input id="dashboardImportRisFile" type="file" accept=".ris" required style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px;" />
+                            </div>
+                            <div style="padding: 12px; background: #f3f4f6; border-radius: 4px; margin-bottom: 16px;">
+                                <strong>Supported fields:</strong> Title, Author(s), Year, DOI, Abstract, Document Type, Keywords (tags), Journal, Volume, Issue, Pages, Publisher, Notes<br>
+                                <span style="color: #6b7280; font-size: 13px;">Compatible with Zotero, Mendeley, EndNote, and PubMed exports (.ris).</span>
+                            </div>
+                            <div id="dashboardImportRisStatus" style="margin-bottom: 12px;"></div>
+                            <div id="dashboardImportRisResults" style="display:none; margin-bottom: 16px; padding: 16px; background: white; border-radius: 4px; border: 1px solid #dee2e6;">
+                                <h4 style="margin: 0 0 12px 0;">Import Summary</h4>
+                                <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;">
+                                    <div style="padding: 8px 12px; background: #d1fae5; color: #065f46; border-radius: 4px;">
+                                        Imported: <strong id="dashboardRisSuccessCount">0</strong>
+                                    </div>
+                                    <div style="padding: 8px 12px; background: #dbeafe; color: #1e40af; border-radius: 4px;">
+                                        CrossRef enriched: <strong id="dashboardRisEnrichedCount">0</strong>
+                                    </div>
+                                    <div style="padding: 8px 12px; background: #fef3c7; color: #92400e; border-radius: 4px;">
+                                        Not found: <strong id="dashboardRisNotFoundCount">0</strong>
+                                    </div>
+                                    <div style="padding: 8px 12px; background: #fee2e2; color: #991b1b; border-radius: 4px;">
+                                        Errors: <strong id="dashboardRisErrorCount">0</strong>
+                                    </div>
+                                </div>
+                                <div id="dashboardRisErrorList" style="max-height: 200px; overflow-y: auto;"></div>
+                            </div>
+                            <div style="display: flex; gap: 8px;">
+                                <button type="submit" class="btn btn-primary">Import RIS</button>
+                                <button type="button" class="btn btn-secondary" onclick="document.getElementById('dashboardAddDocumentInterface').style.display='none'">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="collection-tabs">
+                    <button class="collection-tab-btn active" data-tab="documents">Documents</button>
+                    <button class="collection-tab-btn" data-tab="settings">Settings</button>
+                </div>
+
+                <div id="collectionDocumentsTab" class="collection-tab-pane active">
+
+                    <!-- PDF Tools -->
+                    <div id="pdfToolsSection" style="margin-top: 20px; padding: 14px 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <strong style="color: #166534;">Find &amp; Attach PDFs</strong>
+                            <button id="pdfToolsToggle" onclick="document.getElementById('pdfToolsBody').style.display = document.getElementById('pdfToolsBody').style.display === 'none' ? 'block' : 'none'" style="background:none;border:none;cursor:pointer;color:#16a34a;font-size:13px;">show / hide</button>
+                        </div>
+                        <div id="pdfToolsBody" style="display:none; margin-top: 12px;">
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button id="scanLocalPdfsBtn" class="btn btn-success" style="font-size: 13px;">Scan Local Folder</button>
+                                <button id="fetchOpenAccessBtn" class="btn btn-primary" style="font-size: 13px;">Find Open Access (Unpaywall)</button>
+                                <button id="processQueuedBtn" class="btn btn-secondary" style="font-size: 13px;">Process Queued</button>
+                            </div>
+                            <div id="pdfToolsStatus" style="margin-top: 10px; font-size: 13px;"></div>
+                            <div id="pdfToolsProgress" style="display:none; margin-top: 12px; padding: 12px; background: white; border: 1px solid #bbf7d0; border-radius: 6px; font-size: 13px;">
+                                <div style="font-weight: 600; margin-bottom: 8px; color: #166534;">Ingestion Progress</div>
+                                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px;">
+                                    <div style="text-align: center; padding: 6px; background: #f9fafb; border-radius: 4px;">
+                                        <div id="progressComplete" style="font-size: 20px; font-weight: 700; color: #16a34a;">0</div>
+                                        <div style="color: #6b7280; font-size: 11px;">Complete</div>
+                                    </div>
+                                    <div style="text-align: center; padding: 6px; background: #f9fafb; border-radius: 4px;">
+                                        <div id="progressProcessing" style="font-size: 20px; font-weight: 700; color: #2563eb;">0</div>
+                                        <div style="color: #6b7280; font-size: 11px;">Processing</div>
+                                    </div>
+                                    <div style="text-align: center; padding: 6px; background: #f9fafb; border-radius: 4px;">
+                                        <div id="progressQueued" style="font-size: 20px; font-weight: 700; color: #d97706;">0</div>
+                                        <div style="color: #6b7280; font-size: 11px;">Queued</div>
+                                    </div>
+                                    <div style="text-align: center; padding: 6px; background: #f9fafb; border-radius: 4px;">
+                                        <div id="progressFailed" style="font-size: 20px; font-weight: 700; color: #dc2626;">0</div>
+                                        <div style="color: #6b7280; font-size: 11px;">Failed</div>
+                                    </div>
+                                </div>
+                                <div id="progressLog" style="max-height: 160px; overflow-y: auto; font-family: monospace; font-size: 11px; background: #f8f9fa; border: 1px solid #e5e7eb; border-radius: 4px; padding: 6px; color: #374151;"></div>
+                                <div id="progressDoneMsg" style="display:none; margin-top: 8px; color: #16a34a; font-weight: 600;">Done — refreshing document list…</div>
+                            </div>
+                            <p style="margin: 8px 0 0; font-size: 12px; color: #6b7280;">
+                                <strong>Scan Local Folder</strong> matches PDFs from the Herb files directory against unattached records by title.<br>
+                                <strong>Find Open Access</strong> queries Unpaywall for free legal PDFs by DOI and downloads them automatically.<br>
+                                <strong>Process Queued</strong> starts ingestion for documents already showing "queued" status that have a PDF attached.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="filters" style="margin-top: 20px;">
+                        <select id="collectionStatusFilter" class="filter-select">
+                            <option value="">All Statuses</option>
+                            <option value="not_uploaded">Not Uploaded</option>
+                            <option value="queued">Queued</option>
+                            <option value="processing">Processing</option>
+                            <option value="complete">Complete</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                        <input type="text" id="collectionSearchInput" class="filter-input" placeholder="Search documents...">
+                    </div>
+
+                    <div id="collectionDocumentsTable" class="data-table-container" style="margin-top: 20px;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Type</th>
+                                    <th>Author</th>
+                                    <th>Year</th>
+                                    <th>PDF</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="collectionDocumentsBody">
+                                <tr><td colspan="7" class="loading">Loading documents...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="collectionSettingsTab" class="collection-tab-pane">
+                    <form id="collectionSettingsForm" enctype="multipart/form-data">
+                        <input type="hidden" id="settingsCollectionName" name="collection_name">
+                        
+                        <div class="form-group">
+                            <label>Display Name</label>
+                            <input type="text" id="settingsDisplayName" name="display_name" placeholder="e.g., Research Papers">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Description</label>
+                            <textarea id="settingsDescription" name="description" rows="3" placeholder="What is this collection about?"></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Cover Image</label>
+                            <div id="currentImagePreview" style="margin-bottom: 10px; display: none;">
+                                <img id="currentImageImg" src="" alt="Current cover" style="max-width: 200px; max-height: 200px; border-radius: 8px; border: 2px solid #e5e7eb;">
+                                <p style="font-size: 12px; color: #6b7280; margin-top: 5px;">Current cover image</p>
+                            </div>
+                            <input type="file" id="settingsImage" name="image" accept="image/*">
+                            <p style="font-size: 12px; color: #6b7280; margin-top: 5px;">Upload a new image to replace the current cover (optional)</p>
+                        </div>
+                        
+                        <div class="modal-actions">
+                            <button type="submit" class="btn btn-primary">Save Changes</button>
+                            <button type="button" class="btn btn-danger" id="deleteCollectionBtn">Delete Collection</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload PDF Modal -->
+    <div id="uploadPdfModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Upload PDF</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="uploadPdfForm">
+                    <input type="hidden" name="collection" id="uploadPdfCollection">
+                    <div class="form-group">
+                        <label>Select PDF File *</label>
+                        <input type="file" name="file" accept=".pdf" required>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" name="auto_extract_metadata" checked>
+                            Automatically extract metadata from PDF
+                        </label>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="submit" class="btn btn-primary">Upload</button>
+                        <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+                    </div>
+                </form>
+                <div id="uploadProgress" class="upload-progress" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="uploadProgressFill"></div>
+                    </div>
+                    <p id="uploadProgressText">Uploading...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/dashboard.js?v=9"></script>
+</body>
+</html>

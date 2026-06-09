@@ -1,3 +1,5 @@
+console.log('app.js loaded');
+
 const el = (id) => document.getElementById(id);
 
 const state = {
@@ -15,6 +17,7 @@ const state = {
   normalizeScores: true,
   boostMetadata: false,
   currentAbortController: null,
+  llmMode: "auto",
 };
 
 // View Management
@@ -87,6 +90,16 @@ function setProgress(stage, current, total, message, logs) {
 
 function setActiveCollection(name) {
   state.collection = name;
+  // Persist to localStorage
+  try {
+    if (name) {
+      localStorage.setItem("herbgpt_active_collection", name);
+    } else {
+      localStorage.removeItem("herbgpt_active_collection");
+    }
+  } catch (e) {
+    console.error("Failed to save collection to localStorage:", e);
+  }
 }
 
 function clearWelcome() {
@@ -96,7 +109,7 @@ function clearWelcome() {
   }
 }
 
-function addMessage(role, text, meta) {
+function addMessage(role, text, meta, queryRunId) {
   clearWelcome();
   
   const wrap = document.createElement("div");
@@ -114,11 +127,36 @@ function addMessage(role, text, meta) {
     wrap.appendChild(m);
   }
 
+  // Add evaluation UI for assistant messages
+  if (role === "assistant" && queryRunId) {
+    const evalDiv = document.createElement("div");
+    evalDiv.className = "msg__evaluation";
+    evalDiv.innerHTML = `
+      <div class="eval-actions">
+        <button class="eval-btn eval-btn--thumbs" onclick="rateResponse('${queryRunId}', 'thumbs_up')" title="Good response">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+          </svg>
+        </button>
+        <button class="eval-btn eval-btn--thumbs" onclick="rateResponse('${queryRunId}', 'thumbs_down')" title="Poor response">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path>
+          </svg>
+        </button>
+        <button class="eval-btn" onclick="openDetailedEvaluation('${queryRunId}')" title="Detailed evaluation">
+          ⭐ Rate
+        </button>
+      </div>
+    `;
+    wrap.appendChild(evalDiv);
+    wrap.dataset.queryRunId = queryRunId;
+  }
+
   el("messages").appendChild(wrap);
   el("messages").scrollTop = el("messages").scrollHeight;
   
   // Add to chat history
-  state.chatHistory.push({ role, text, meta, timestamp: new Date().toISOString() });
+  state.chatHistory.push({ role, text, meta, queryRunId, timestamp: new Date().toISOString() });
   saveChatHistory();
 }
 
@@ -150,6 +188,31 @@ function loadChatHistory() {
           m.className = "msg__meta";
           m.textContent = msg.meta;
           wrap.appendChild(m);
+        }
+
+        // Add evaluation UI for assistant messages
+        if (msg.role === "assistant" && msg.queryRunId) {
+          const evalDiv = document.createElement("div");
+          evalDiv.className = "msg__evaluation";
+          evalDiv.innerHTML = `
+            <div class="eval-actions">
+              <button class="eval-btn eval-btn--thumbs" onclick="rateResponse('${msg.queryRunId}', 'thumbs_up')" title="Good response">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+                </svg>
+              </button>
+              <button class="eval-btn eval-btn--thumbs" onclick="rateResponse('${msg.queryRunId}', 'thumbs_down')" title="Poor response">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path>
+                </svg>
+              </button>
+              <button class="eval-btn" onclick="openDetailedEvaluation('${msg.queryRunId}')" title="Detailed evaluation">
+                ⭐ Rate
+              </button>
+            </div>
+          `;
+          wrap.appendChild(evalDiv);
+          wrap.dataset.queryRunId = msg.queryRunId;
         }
 
         el("messages").appendChild(wrap);
@@ -185,8 +248,12 @@ async function createNewSession(title = "New Chat") {
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.detail || "Failed to create session");
     
-    state.currentSessionId = data.session.session_id;
+    state.currentSessionId = data.session.id;
     await loadChatSessions();
+    
+    // Update URL to the new conversation
+    window.history.pushState({sessionId: data.session.id}, '', `/chat/${data.session.id}`);
+    
     return data.session;
   } catch (e) {
     console.error("Failed to create session:", e);
@@ -196,6 +263,7 @@ async function createNewSession(title = "New Chat") {
 
 async function loadChatSessions() {
   try {
+    console.log("Loading chat sessions...");
     const resp = await fetch("/chat/sessions?limit=50");
     
     if (!resp.ok) {
@@ -207,7 +275,18 @@ async function loadChatSessions() {
     }
     
     const data = await resp.json();
-    state.sessions = data.sessions || [];
+    console.log("API Response:", data);
+    console.log("Response status:", data.status);
+    console.log("Sessions array:", data.sessions);
+    
+    if (data.status === "success" && Array.isArray(data.sessions)) {
+      state.sessions = data.sessions;
+      console.log("✅ Loaded", state.sessions.length, "sessions");
+    } else {
+      console.error("❌ Invalid response format:", data);
+      state.sessions = [];
+    }
+    
     renderChatSessions();
   } catch (e) {
     console.error("Failed to load sessions:", e);
@@ -232,41 +311,53 @@ function filterChatSessions(query) {
 
 function renderChatSessions(sessionsToRender = null) {
   const list = el("chatHistoryList");
-  if (!list) return;
+  if (!list) {
+    console.error("chatHistoryList element not found!");
+    return;
+  }
   
   const sessions = sessionsToRender || state.sessions;
+  console.log("Rendering sessions:", sessions.length, sessions);
   
   if (sessions.length === 0) {
+    console.log("No sessions to render, showing empty state");
     list.innerHTML = '<div class="chat-history-empty">No chat history yet</div>';
     return;
   }
   
+  console.log("Rendering", sessions.length, "sessions");
   list.innerHTML = sessions.map(session => {
-    const isActive = session.session_id === state.currentSessionId;
-    const timeAgo = formatTimeAgo(session.last_message_at || session.created_at);
+    const isActive = session.id === state.currentSessionId;
     
     return `
-      <div class="chat-session-item ${isActive ? 'active' : ''}" data-session-id="${session.session_id}">
-        <div class="chat-session-title" data-editable="false">${escapeHtml(session.title)}</div>
-        <div class="chat-session-meta">
-          <span>${session.message_count || 0} messages</span>
-          <span>•</span>
-          <span>${timeAgo}</span>
-          ${session.collection ? `<span class="chat-collection-badge">${escapeHtml(session.collection)}</span>` : ''}
+      <div class="chat-session-item ${isActive ? 'active' : ''}" data-session-id="${session.id}">
+        <div class="chat-session-content">
+          <div class="chat-session-title" data-editable="false">${escapeHtml(session.title)}</div>
         </div>
         <div class="chat-session-actions">
-          <button class="chat-action-btn" data-action="rename" title="Rename">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          <button class="chat-menu-btn" data-action="menu" title="Options">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="12" cy="5" r="2"/>
+              <circle cx="12" cy="12" r="2"/>
+              <circle cx="12" cy="19" r="2"/>
             </svg>
           </button>
-          <button class="chat-action-btn" data-action="delete" title="Delete">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-            </svg>
-          </button>
+          <div class="chat-menu-dropdown" style="display: none;">
+            <button class="chat-menu-item" data-action="rename">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+              <span>Rename</span>
+            </button>
+            <button class="chat-menu-item chat-menu-item-danger" data-action="delete">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+              <span>Delete</span>
+            </button>
+          </div>
         </div>
       </div>
     `;
@@ -275,21 +366,43 @@ function renderChatSessions(sessionsToRender = null) {
   // Attach event listeners
   list.querySelectorAll('.chat-session-item').forEach(item => {
     const sessionId = item.dataset.sessionId;
+    const menuBtn = item.querySelector('[data-action="menu"]');
+    const menuDropdown = item.querySelector('.chat-menu-dropdown');
     
     item.addEventListener('click', (e) => {
-      if (e.target.closest('.chat-action-btn')) return;
+      if (e.target.closest('.chat-session-actions')) return;
       switchToSession(sessionId);
     });
     
+    // Toggle menu dropdown
+    menuBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // Close all other menus
+      document.querySelectorAll('.chat-menu-dropdown').forEach(m => {
+        if (m !== menuDropdown) m.style.display = 'none';
+      });
+      menuDropdown.style.display = menuDropdown.style.display === 'none' ? 'block' : 'none';
+    });
+    
+    // Menu item actions
     item.querySelector('[data-action="rename"]')?.addEventListener('click', (e) => {
       e.stopPropagation();
+      menuDropdown.style.display = 'none';
       startRenameSession(sessionId, item);
     });
     
     item.querySelector('[data-action="delete"]')?.addEventListener('click', (e) => {
       e.stopPropagation();
+      menuDropdown.style.display = 'none';
       deleteSession(sessionId);
     });
+  });
+  
+  // Close menus when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.chat-session-actions')) {
+      document.querySelectorAll('.chat-menu-dropdown').forEach(m => m.style.display = 'none');
+    }
   });
 }
 
@@ -306,6 +419,9 @@ async function switchToSession(sessionId) {
     el("messages").innerHTML = '';
     state.chatHistory = [];
     state.currentSessionId = sessionId;
+    
+    // Update URL without reloading page
+    window.history.pushState({sessionId}, '', `/chat/${sessionId}`);
     
     // Load messages
     const messages = data.messages || [];
@@ -325,15 +441,23 @@ async function switchToSession(sessionId) {
 }
 
 async function saveMessageToSession(role, content, sources = null) {
+  console.log("saveMessageToSession called:", { role, content: content.substring(0, 50), currentSessionId: state.currentSessionId });
+  
   if (!state.currentSessionId) {
     const title = role === 'user' ? generateTitleFromMessage(content) : 'New Chat';
+    console.log("Creating new session with title:", title);
     await createNewSession(title);
+    console.log("Session created, ID:", state.currentSessionId);
   }
   
-  if (!state.currentSessionId) return;
+  if (!state.currentSessionId) {
+    console.error("No session ID after creation attempt!");
+    return;
+  }
   
   try {
-    await fetch(`/chat/sessions/${state.currentSessionId}/messages`, {
+    console.log("Saving message to session:", state.currentSessionId);
+    const resp = await fetch(`/chat/sessions/${state.currentSessionId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -344,6 +468,13 @@ async function saveMessageToSession(role, content, sources = null) {
       })
     });
     
+    if (!resp.ok) {
+      const errorText = await resp.text();
+      console.error("Failed to save message - HTTP", resp.status, errorText);
+      return;
+    }
+    
+    console.log("Message saved successfully");
     await loadChatSessions();
   } catch (e) {
     console.error("Failed to save message:", e);
@@ -557,9 +688,10 @@ async function loadCollectionsList() {
       const imageDiv = document.createElement("div");
       imageDiv.className = "collection-card__image";
       
-      if (c.image) {
+      const hasImage = c.image || c.image_url;
+      if (hasImage) {
         const img = document.createElement("img");
-        img.src = `/collections/${c.name}/image`;
+        img.src = c.image_url || c.image || `/collections/${c.name}/image`;
         img.alt = c.display_name || c.name;
         imageDiv.appendChild(img);
       } else {
@@ -598,7 +730,7 @@ async function loadCollectionsList() {
       
       const meta = document.createElement("div");
       meta.className = "collection-card__meta";
-      meta.textContent = `${c.file_count || 0} files`;
+      meta.textContent = `${c.file_count || 0} records · ${c.disk_file_count || 0} files`;
       content.appendChild(meta);
       
       card.appendChild(content);
@@ -628,8 +760,9 @@ async function openEditView(collection) {
   // Show current image if exists
   const preview = el("editImagePreview");
   const previewImg = el("editPreviewImg");
-  if (collection.image) {
-    previewImg.src = `/collections/${collection.name}/image`;
+  const hasImage = collection.image || collection.image_url;
+  if (hasImage) {
+    previewImg.src = collection.image_url || collection.image || `/collections/${collection.name}/image`;
     preview.style.display = "block";
   } else {
     preview.style.display = "none";
@@ -740,13 +873,11 @@ async function queryRag(question) {
   const collection = currentCollection();
   if (!collection) throw new Error("Pick a collection first");
 
-  // Save user message to session
-  await saveMessageToSession('user', question);
-
   const fd = new FormData();
   fd.append("collection", collection);
   fd.append("query", question);
-  
+  fd.append("llm_mode", state.llmMode);
+
   // Add retrieval profile or custom weights
   if (state.retrievalProfile !== "custom") {
     fd.append("profile_name", state.retrievalProfile);
@@ -769,10 +900,6 @@ async function queryRag(question) {
   });
   const data = await resp.json();
   if (!resp.ok) throw new Error(data.detail || "Query failed");
-  
-  // Save assistant response to session
-  const sources = data.sources || [];
-  await saveMessageToSession('assistant', data.response, sources);
   
   state.currentAbortController = null;
   return data;
@@ -946,6 +1073,9 @@ function wireEvents() {
     newChatBtn.addEventListener("click", () => {
       state.currentSessionId = null;
       clearChatHistory();
+      // Update URL to home page
+      window.history.pushState({}, '', '/');
+      renderChatSessions();
     });
   }
   
@@ -1143,16 +1273,15 @@ function wireEvents() {
   }
 
   // Collection select
-  el("collectionSelect").addEventListener("change", () => {
-    const v = el("collectionSelect").value;
+  el("collectionSelect").addEventListener("change", (e) => {
+    const v = e.target.value;
     setActiveCollection(v);
+    console.log("Collection changed to:", v);
   });
 
-  // Open collections modal
-  el("manageCollectionsBtn").addEventListener("click", async () => {
-    openModal("collectionsModal");
-    showView("collectionsListView");
-    await loadCollectionsList();
+  // Open dashboard
+  el("dashboardBtn").addEventListener("click", () => {
+    window.location.href = "/dashboard";
   });
 
   // Close collections modal
@@ -1501,7 +1630,7 @@ function wireEvents() {
   chatInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      chatForm.dispatchEvent(new Event("submit"));
+      chatForm.requestSubmit();
     }
   });
 
@@ -1513,6 +1642,9 @@ function wireEvents() {
     chatInput.value = "";
     chatInput.style.height = "auto";
     addMessage("user", text);
+    
+    // Save user message to session
+    await saveMessageToSession('user', text);
 
     const sendBtn = el("sendBtn");
     const stopBtn = el("stopBtn");
@@ -1521,21 +1653,62 @@ function wireEvents() {
     sendBtn.style.display = "none";
     stopBtn.style.display = "flex";
 
+    let updateTimer = null;
     try {
       addMessage("assistant", "Thinking...");
       const messagesEl = el("messages");
       const thinking = messagesEl.lastChild;
+      
+      // Add elapsed time indicator
+      const startTime = Date.now();
+      updateTimer = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const content = thinking.querySelector(".msg__content");
+        if (content) {
+          content.textContent = `Thinking... (${elapsed}s)`;
+        }
+      }, 1000);
 
+      console.log("Sending query to backend...");
       const res = await queryRag(text);
+      console.log("Response received:", res);
+
+      // Stop the elapsed-time ticker immediately — before any further awaits —
+      // otherwise it keeps firing and overwrites the answer in the DOM.
+      if (updateTimer) {
+        clearInterval(updateTimer);
+        updateTimer = null;
+      }
+
       const answer = res.answer || res.response || "";
+      console.log("Extracted answer:", answer ? `${answer.substring(0, 50)}...` : "(empty)");
+
+      if (!answer) {
+        console.error("Empty answer received from backend!");
+        throw new Error("Received empty response from server");
+      }
+      
       const sources = res.sources || [];
       const sourceMeta = sources.length
-        ? `Sources: ${sources.slice(0, 3).map(s => `${s.filename || s.doc_id}#${s.chunk_index}`).join(", ")}`
+        ? `Sources: ${sources.slice(0, 3).map(s => `${s.title || s.filename || s.doc_id}#${s.chunk_index}`).join(", ")}`
         : "Sources: none";
+
+      const meta = res.metadata || {};
+      const llmTier = meta.llm_tier || null;
+      const nlpComplexity = meta.nlp_complexity != null ? meta.nlp_complexity : null;
+      const nlpType = meta.nlp_question_type || null;
+
+      const queryRunId = res.query_run_id || null;
 
       const content = thinking.querySelector(".msg__content");
       if (content) {
         content.textContent = answer;
+        console.log("Updated message content successfully");
+      } else {
+        console.error("Could not find .msg__content element! Recreating message...");
+        // Fallback: remove thinking message and add new one
+        thinking.remove();
+        addMessage("assistant", answer, sourceMeta, queryRunId);
       }
       
       let metaDiv = thinking.querySelector(".msg__meta");
@@ -1545,15 +1718,58 @@ function wireEvents() {
         thinking.appendChild(metaDiv);
       }
       metaDiv.textContent = sourceMeta;
+
+      // LLM tier badge
+      const existingBadge = thinking.querySelector(".llm-badge");
+      if (existingBadge) existingBadge.remove();
+      if (llmTier) {
+        const badge = document.createElement("div");
+        badge.className = `llm-badge llm-badge--${llmTier}`;
+        let label = llmTier === "fast" ? "Fast" : "Thinking";
+        if (state.llmMode === "auto" && nlpComplexity != null) {
+          label += ` (auto · ${nlpType || ""} · ${nlpComplexity.toFixed(2)})`;
+        }
+        badge.textContent = label;
+        thinking.insertBefore(badge, metaDiv);
+      }
+
+      // Add evaluation UI if queryRunId exists
+      if (queryRunId && !thinking.querySelector(".msg__evaluation")) {
+        const evalDiv = document.createElement("div");
+        evalDiv.className = "msg__evaluation";
+        evalDiv.innerHTML = `
+          <div class="eval-actions">
+            <button class="eval-btn eval-btn--thumbs" onclick="rateResponse('${queryRunId}', 'thumbs_up')" title="Good response">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+              </svg>
+            </button>
+            <button class="eval-btn eval-btn--thumbs" onclick="rateResponse('${queryRunId}', 'thumbs_down')" title="Poor response">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path>
+              </svg>
+            </button>
+            <button class="eval-btn" onclick="openDetailedEvaluation('${queryRunId}')" title="Detailed evaluation">
+              ⭐ Rate
+            </button>
+          </div>
+        `;
+        thinking.appendChild(evalDiv);
+        thinking.dataset.queryRunId = queryRunId;
+      }
       
       // Update chat history
       state.chatHistory[state.chatHistory.length - 1] = {
         role: "assistant",
         text: answer,
         meta: sourceMeta,
+        queryRunId: queryRunId,
         timestamp: new Date().toISOString()
       };
       saveChatHistory();
+      
+      // Save to database session
+      await saveMessageToSession('assistant', answer, sources);
     } catch (err) {
       if (err.name === 'AbortError') {
         // Request was cancelled
@@ -1569,6 +1785,10 @@ function wireEvents() {
         addMessage("assistant", `Error: ${err.message}`);
       }
     } finally {
+      // Clear timer if still running
+      if (updateTimer) {
+        clearInterval(updateTimer);
+      }
       // Always restore send button
       sendBtn.style.display = "flex";
       stopBtn.style.display = "none";
@@ -1585,6 +1805,28 @@ function wireEvents() {
         state.currentAbortController.abort();
         console.log("Request cancelled by user");
       }
+    });
+  }
+
+  // Attach button - open unified Add Document modal
+  const attachBtn = el("attachBtn");
+  if (attachBtn) {
+    attachBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const currentCollection = el("collectionSelect")?.value || "default";
+      if (typeof documentManager !== 'undefined') {
+        documentManager.openModal(currentCollection);
+      } else {
+        console.error("Document manager not initialized");
+      }
+    });
+  }
+
+  // Close file manager modal
+  const closeFileManagerBtn = el("closeFileManagerBtn");
+  if (closeFileManagerBtn) {
+    closeFileManagerBtn.addEventListener("click", () => {
+      closeModal("fileManagerModal");
     });
   }
 
@@ -1749,9 +1991,96 @@ async function loadDocumentation(docType) {
   }
 }
 
-(async function init() {
+// Evaluation functions
+async function rateResponse(queryRunId, rating) {
   try {
-    setActiveCollection("");
+    const score = rating === 'thumbs_up' ? 5 : 1;
+    const response = await fetch('/api/evaluations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query_run_id: queryRunId,
+        overall_score: score,
+        feedback_text: rating === 'thumbs_up' ? 'Quick thumbs up' : 'Quick thumbs down'
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to submit rating');
+    }
+    
+    // Visual feedback
+    const msgEl = document.querySelector(`[data-query-run-id="${queryRunId}"]`);
+    if (msgEl) {
+      const evalDiv = msgEl.querySelector('.msg__evaluation');
+      if (evalDiv) {
+        evalDiv.innerHTML = `<div class="eval-feedback">Thanks for your feedback! ${rating === 'thumbs_up' ? '👍' : '👎'}</div>`;
+      }
+    }
+  } catch (error) {
+    console.error('Error submitting rating:', error);
+    alert('Failed to submit rating. Please try again.');
+  }
+}
+
+function openDetailedEvaluation(queryRunId) {
+  // Store the query run ID for the modal
+  window.currentEvaluationQueryRunId = queryRunId;
+  
+  // Show a simple prompt for now (can be enhanced with a modal later)
+  const feedback = prompt('Please provide detailed feedback (optional):');
+  const score = prompt('Rate from 1-5 (1=poor, 5=excellent):');
+  
+  if (score) {
+    const scoreNum = parseInt(score);
+    if (scoreNum >= 1 && scoreNum <= 5) {
+      submitDetailedEvaluation(queryRunId, scoreNum, feedback || '');
+    } else {
+      alert('Please enter a number between 1 and 5');
+    }
+  }
+}
+
+async function submitDetailedEvaluation(queryRunId, score, feedback) {
+  try {
+    const response = await fetch('/api/evaluations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query_run_id: queryRunId,
+        overall_score: score,
+        feedback_text: feedback
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to submit evaluation');
+    }
+    
+    // Visual feedback
+    const msgEl = document.querySelector(`[data-query-run-id="${queryRunId}"]`);
+    if (msgEl) {
+      const evalDiv = msgEl.querySelector('.msg__evaluation');
+      if (evalDiv) {
+        evalDiv.innerHTML = `<div class="eval-feedback">Thanks for your detailed feedback! ⭐${score}/5</div>`;
+      }
+    }
+  } catch (error) {
+    console.error('Error submitting evaluation:', error);
+    alert('Failed to submit evaluation. Please try again.');
+  }
+}
+
+(async function init() {
+  console.log('app.js init() called');
+  try {
+    // Restore previously selected collection from localStorage
+    const savedCollection = localStorage.getItem("herbgpt_active_collection");
+    if (savedCollection) {
+      setActiveCollection(savedCollection);
+    }
+    
+    console.log('Wiring events...');
     wireEvents();
     
     // Load collections (non-blocking)
@@ -1759,26 +2088,59 @@ async function loadDocumentation(docType) {
       console.error("Failed to load collections:", e);
     });
     
+    // Load collections grid (non-blocking)
+    loadCollectionsList().catch(e => {
+      console.error("Failed to load collections list:", e);
+    });
+    
     // Load custom profiles (non-blocking)
     loadCustomProfiles().catch(e => {
       console.error("Failed to load custom profiles:", e);
     });
     
-    // Load chat sessions (non-blocking)
-    loadChatSessions().catch(e => {
-      console.error("Failed to load chat sessions:", e);
-    });
+    // Load chat sessions
+    await loadChatSessions();
     
-    // Load chat history from localStorage (synchronous)
-    try {
-      loadChatHistory();
-    } catch (e) {
-      console.error("Failed to load chat history:", e);
+    // Check if there's a conversation_id in the URL path
+    const pathMatch = window.location.pathname.match(/^\/chat\/([a-f0-9-]+)$/i);
+    if (pathMatch) {
+      const conversationId = pathMatch[1];
+      console.log("Loading conversation from URL:", conversationId);
+      await switchToSession(conversationId);
+      // Update URL to clean format without reloading
+      window.history.replaceState({}, '', `/chat/${conversationId}`);
     }
     
+    // Initialize LLM mode toggle
+    const llmToggle = el("llmModeToggle");
+    if (llmToggle) {
+      llmToggle.querySelectorAll(".mode-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          state.llmMode = btn.dataset.mode;
+          llmToggle.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("mode-btn--active"));
+          btn.classList.add("mode-btn--active");
+        });
+      });
+    }
+
     // Initialize retrieval controls
     updateProfileDescription(state.retrievalProfile);
     updateWeightDisplays();
+    
+    // Handle browser back/forward buttons
+    window.addEventListener('popstate', async (event) => {
+      const pathMatch = window.location.pathname.match(/^\/chat\/([a-f0-9-]+)$/i);
+      if (pathMatch) {
+        const conversationId = pathMatch[1];
+        if (conversationId !== state.currentSessionId) {
+          await switchToSession(conversationId);
+        }
+      } else if (window.location.pathname === '/') {
+        state.currentSessionId = null;
+        clearChatHistory();
+        renderChatSessions();
+      }
+    });
     
     console.log("App initialized successfully");
   } catch (e) {

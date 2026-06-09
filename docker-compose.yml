@@ -15,30 +15,52 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   rag-api:
     build: .
     restart: unless-stopped
     ports:
-      - "8010:8000"
+      - "8010:8080"
     environment:
       QDRANT_URL: "http://qdrant:6333"
-      SUPABASE_URL: "${SUPABASE_URL:-http://host.docker.internal:8000}"
-      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
-      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY:-}"
+      SUPABASE_URL: "http://kong:8000"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY}"
       DROP_FOLDER_PATH: "${DROP_FOLDER_PATH:-/herb_files}"
       # Ollama for embeddings and LLM
+      OLLAMA_BASE_URL: "http://ollama:11434"
+      OLLAMA_EMBEDDING_MODEL: "nomic-embed-text"
       LM_STUDIO_BASE_URL: "${LM_STUDIO_BASE_URL:-http://ollama:11434/v1}"
-      LM_STUDIO_EMBEDDING_MODEL: "${LM_STUDIO_EMBEDDING_MODEL:-mxbai-embed-large}"
-      LM_STUDIO_MODEL: "${LM_STUDIO_MODEL:-qwen2.5:7b}"
+      LM_STUDIO_MODEL: "${LM_STUDIO_MODEL:-qwen2.5:14b}"
       LM_STUDIO_TIMEOUT_SECONDS: "${LM_STUDIO_TIMEOUT_SECONDS:-300}"
-      LM_STUDIO_EMBEDDING_BATCH_SIZE: "${LM_STUDIO_EMBEDDING_BATCH_SIZE:-16}"
+      LM_STUDIO_EMBEDDING_BATCH_SIZE: "${LM_STUDIO_EMBEDDING_BATCH_SIZE:-1}"
+      FAST_LLM_MODEL: "qwen2.5:7b"
+      FAST_LLM_BASE_URL: "http://ollama:11434/v1"
+      FAST_LLM_TIMEOUT_SECONDS: "45"
+      LARGE_LLM_MODEL: "qwen2.5:14b"
+      LARGE_LLM_BASE_URL: "http://ollama:11434/v1"
+      LARGE_LLM_TIMEOUT_SECONDS: "120"
+      USE_COLLECTION_AWARE_CHAT: "true"
     volumes:
       - ./data:/app/data
       - "C:/HerbData/Herb_files:/herb_files"
+    networks:
+      - default
+      - supabase_default
     depends_on:
       - qdrant
       - ollama
+
+networks:
+  supabase_default:
+    external: true
 
 volumes:
   qdrant_storage:

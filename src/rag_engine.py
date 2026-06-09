@@ -152,12 +152,12 @@ class RAGEngine:
 
         hits = await self._vector_store.search(collection, qvec, limit=top_k, vector_name=vector_name)
 
-        max_chunk_chars = int(os.getenv("RAG_MAX_CONTEXT_CHUNK_CHARS") or "800")
+        max_chunk_chars = int(os.getenv("RAG_MAX_CONTEXT_CHUNK_CHARS") or "1500")
         if max_chunk_chars <= 0:
-            max_chunk_chars = 800
-        max_total_chars = int(os.getenv("RAG_MAX_CONTEXT_TOTAL_CHARS") or "2500")
+            max_chunk_chars = 1500
+        max_total_chars = int(os.getenv("RAG_MAX_CONTEXT_TOTAL_CHARS") or "8000")
         if max_total_chars <= 0:
-            max_total_chars = 2500
+            max_total_chars = 8000
 
         context_blocks: List[str] = []
         sources: List[Dict[str, Any]] = []
@@ -187,20 +187,27 @@ class RAGEngine:
 
         system_prompt = os.getenv(
             "RAG_SYSTEM_PROMPT",
-            "You are a helpful assistant. Use the provided context to answer. If the answer is not in the context, say you don't know.",
+            "You are a knowledgeable research assistant. Answer questions clearly and helpfully, "
+            "drawing from the research context provided. Match your response length to the question — "
+            "a simple question gets a concise answer, a complex question gets more depth. "
+            "Write in plain prose. Do not use markdown headers, numbered sections, or bullet points "
+            "unless the question explicitly asks for a list. If the answer is not in the context, say so.",
         )
 
         user_prompt = (
-            f"Context:\n{context}\n\n"
+            f"Research Context:\n{context}\n\n"
             f"Question: {query_text}\n\n"
-            "Answer (use the context, be concise, include key details):"
+            "Answer based on the research context above. Be as brief or detailed as the question warrants.\n\n"
+            "Answer:"
         )
 
         answer = await self._llm_client.chat(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
-            ]
+            ],
+            temperature=0.4,
+            max_tokens=800
         )
 
         return {"answer": answer, "sources": sources}

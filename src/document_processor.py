@@ -225,7 +225,7 @@ class DocumentProcessor:
     def _chunk_content(self, content: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Split content into manageable chunks for vectorization"""
         # Simple chunking strategy - can be enhanced with more sophisticated methods
-        chunk_size = 2500  # characters per chunk
+        chunk_size = 2000  # characters per chunk
         chunk_overlap = 200  # characters overlap between chunks
         
         chunks = []

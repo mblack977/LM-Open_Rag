@@ -1,28 +1,46 @@
 import asyncio
 import os
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import httpx
 from sentence_transformers import SentenceTransformer
 
 
 class EmbeddingGenerator:
-    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
+    # Max concurrent requests to Ollama (single-prompt API, so parallelism matters)
+    _OLLAMA_CONCURRENCY = 4
+
+    # mxbai-embed-large has a strict 512-token context limit.
+    # Dense academic text (statistics, citations) tokenises at 3-4 chars/token,
+    # so 800 chars ≈ 200-270 tokens — safely under the cap.
+    # Override with OLLAMA_EMBEDDING_MAX_CHARS for models with longer context (e.g. nomic-embed-text).
+    _OLLAMA_MAX_CHARS = int(os.getenv("OLLAMA_EMBEDDING_MAX_CHARS") or "800")
+
+    def __init__(self, model_name: Optional[str] = None):
         self._lm_base_url = (os.getenv("LM_STUDIO_BASE_URL") or "http://localhost:1234/v1").rstrip("/")
         self._lm_api_key = os.getenv("LM_STUDIO_API_KEY") or "lm-studio"
         self._lm_embedding_model = os.getenv("LM_STUDIO_EMBEDDING_MODEL")
         self._timeout_seconds = float(os.getenv("LM_STUDIO_TIMEOUT_SECONDS") or "120")
         self._batch_size = int(os.getenv("LM_STUDIO_EMBEDDING_BATCH_SIZE") or "16")
-        
+
         self._ollama_base_url = (os.getenv("OLLAMA_BASE_URL") or "http://localhost:11434").rstrip("/")
         self._ollama_embedding_model = os.getenv("OLLAMA_EMBEDDING_MODEL")
 
-        self._model_name = model_name
+        # LOCAL_EMBEDDING_MODEL lets you upgrade the local SentenceTransformer without code changes.
+        # Recommended: BAAI/bge-base-en-v1.5 (768d) or BAAI/bge-large-en-v1.5 (1024d).
+        # Changing this requires re-ingesting all documents (dimension change).
+        local_model_name = (
+            model_name
+            or os.getenv("LOCAL_EMBEDDING_MODEL")
+            or "sentence-transformers/all-MiniLM-L6-v2"
+        )
+
+        self._model_name = local_model_name
         self._model: Optional[SentenceTransformer] = None
         self._dimension_cache: Optional[int] = None
 
         if not self._lm_embedding_model and not self._ollama_embedding_model:
-            self._model = SentenceTransformer(model_name)
+            self._model = SentenceTransformer(local_model_name)
 
     async def embed_texts(self, texts: List[str]) -> List[List[float]]:
         if self._ollama_embedding_model:
@@ -30,7 +48,7 @@ class EmbeddingGenerator:
             if vectors and self._dimension_cache is None:
                 self._dimension_cache = len(vectors[0])
             return vectors
-        
+
         if self._lm_embedding_model:
             vectors = await self._embed_texts_lm_studio_batched(texts)
             if vectors and self._dimension_cache is None:
@@ -46,7 +64,6 @@ class EmbeddingGenerator:
     def _embed_texts_sync(self, texts: List[str]) -> List[List[float]]:
         if self._model is None:
             raise RuntimeError("SentenceTransformer model is not initialized")
-
         embeddings = self._model.encode(
             texts,
             normalize_embeddings=True,
@@ -54,41 +71,41 @@ class EmbeddingGenerator:
         )
         return embeddings.tolist()
 
+    # ── LM Studio ────────────────────────────────────────────────────────────
+
     async def _embed_texts_lm_studio_batched(self, texts: List[str]) -> List[List[float]]:
         if not texts:
             return []
-
-        batch_size = self._batch_size
-        if batch_size <= 0:
-            batch_size = 16
-
-        out: List[List[float]] = []
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i : i + batch_size]
-            out.extend(await self._embed_texts_lm_studio(batch))
-        return out
-
-    async def _embed_texts_lm_studio(self, texts: List[str]) -> List[List[float]]:
+        batch_size = max(self._batch_size, 1)
         url = f"{self._lm_base_url}/embeddings"
-        headers = {
+        headers: Dict[str, str] = {
             "Authorization": f"Bearer {self._lm_api_key}",
             "Content-Type": "application/json",
         }
-        payload = {
-            "model": self._lm_embedding_model,
-            "input": texts,
-        }
+        out: List[List[float]] = []
+        # One persistent client for the entire call — reuses TCP connection across batches.
+        async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
+            for i in range(0, len(texts), batch_size):
+                batch = texts[i : i + batch_size]
+                out.extend(await self._call_lm_studio(client, url, headers, batch))
+        return out
 
+    async def _call_lm_studio(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        headers: Dict[str, str],
+        texts: List[str],
+    ) -> List[List[float]]:
+        payload = {"model": self._lm_embedding_model, "input": texts}
         try:
-            async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
-                resp = await client.post(url, headers=headers, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
         except httpx.ConnectError as e:
             raise RuntimeError(
                 f"Failed to connect to LM Studio embeddings endpoint at {url}. "
-                "If you are running this inside Docker, ensure LM Studio's server is listening on 0.0.0.0 (not only 127.0.0.1) "
-                "and that the OpenAI-compatible server is enabled."
+                "Ensure LM Studio's server is listening on 0.0.0.0 and the OpenAI-compatible server is enabled."
             ) from e
         except httpx.ReadTimeout as e:
             raise RuntimeError(
@@ -97,61 +114,65 @@ class EmbeddingGenerator:
             ) from e
         except httpx.HTTPStatusError as e:
             raise RuntimeError(
-                f"LM Studio embeddings endpoint returned HTTP {e.response.status_code} at {url}. "
+                f"LM Studio embeddings endpoint returned HTTP {e.response.status_code}. "
                 f"Model: {self._lm_embedding_model}. Response: {e.response.text}"
             ) from e
-
-        # OpenAI-style response: { data: [ { embedding: [...] }, ... ] }
         items = data.get("data") or []
         vectors = [it.get("embedding") for it in items]
         if not vectors or any(v is None for v in vectors):
             raise RuntimeError("LM Studio embeddings returned no vectors")
         return vectors
 
+    # ── Ollama ───────────────────────────────────────────────────────────────
+
     async def _embed_texts_ollama_batched(self, texts: List[str]) -> List[List[float]]:
+        """Use /api/embed (batch endpoint) with truncate:true — immune to context-length errors."""
         if not texts:
             return []
-
+        url = f"{self._ollama_base_url}/api/embed"
+        headers: Dict[str, str] = {"Content-Type": "application/json"}
+        batch_size = max(self._batch_size, 1)
         out: List[List[float]] = []
-        for text in texts:
-            vector = await self._embed_text_ollama(text)
-            out.append(vector)
+        async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
+            for i in range(0, len(texts), batch_size):
+                batch = [t.replace("\x00", "")[:self._OLLAMA_MAX_CHARS] for t in texts[i : i + batch_size]]
+                out.extend(await self._call_ollama_batch(client, url, headers, batch))
         return out
 
-    async def _embed_text_ollama(self, text: str) -> List[float]:
-        url = f"{self._ollama_base_url}/api/embeddings"
-        headers = {"Content-Type": "application/json"}
-        payload = {
-            "model": self._ollama_embedding_model,
-            "prompt": text,
-        }
-
+    async def _call_ollama_batch(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        headers: Dict[str, str],
+        texts: List[str],
+    ) -> List[List[float]]:
+        payload = {"model": self._ollama_embedding_model, "input": texts, "truncate": True}
         try:
-            async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
-                resp = await client.post(url, headers=headers, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
         except httpx.ConnectError as e:
             raise RuntimeError(
-                f"Failed to connect to Ollama embeddings endpoint at {url}. "
+                f"Failed to connect to Ollama at {url}. "
                 "Ensure Ollama is running (ollama serve) and accessible."
             ) from e
         except httpx.ReadTimeout as e:
             raise RuntimeError(
-                f"Timed out calling Ollama embeddings endpoint at {url}. "
+                f"Timed out calling Ollama at {url}. "
                 "Try increasing LM_STUDIO_TIMEOUT_SECONDS."
             ) from e
         except httpx.HTTPStatusError as e:
             raise RuntimeError(
-                f"Ollama embeddings endpoint returned HTTP {e.response.status_code} at {url}. "
+                f"Ollama returned HTTP {e.response.status_code}. "
                 f"Model: {self._ollama_embedding_model}. Response: {e.response.text}"
             ) from e
+        # /api/embed returns {"embeddings": [[...], ...]}
+        vectors = data.get("embeddings")
+        if not vectors or any(v is None for v in vectors):
+            raise RuntimeError("Ollama /api/embed returned no embeddings")
+        return vectors
 
-        # Ollama response: { embedding: [...] }
-        vector = data.get("embedding")
-        if not vector:
-            raise RuntimeError("Ollama embeddings returned no vector")
-        return vector
+    # ── Helpers ──────────────────────────────────────────────────────────────
 
     @property
     def dimension(self) -> int:
@@ -159,6 +180,4 @@ class EmbeddingGenerator:
             return int(self._dimension_cache)
         if self._model is not None:
             return int(self._model.get_sentence_embedding_dimension())
-        # If using LM Studio embeddings, dimension is unknown until first call.
-        # This will be filled after the first embed_texts/embed_query.
         return 0

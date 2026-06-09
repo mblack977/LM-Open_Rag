@@ -9,3 +9,5 @@ __pycache__/
 .vscode/
 .idea/
 open_webui_data/
+*.log
+logs/

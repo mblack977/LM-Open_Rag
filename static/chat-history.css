@@ -1,0 +1,117 @@
+/* Chat History Styles */
+
+.chat-session-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  margin-bottom: 4px;
+  gap: 8px;
+}
+
+.chat-session-item:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.chat-session-item:hover .chat-menu-btn {
+  opacity: 1;
+}
+
+.chat-session-item.active {
+  background-color: rgba(99, 102, 241, 0.1);
+}
+
+.chat-session-content {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-session-title {
+  font-weight: 400;
+  color: var(--text);
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-session-actions {
+  flex-shrink: 0;
+  position: relative;
+}
+
+.chat-menu-btn {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  opacity: 0;
+}
+
+.chat-menu-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #e5e7eb;
+}
+
+.chat-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background-color: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  min-width: 140px;
+  overflow: hidden;
+}
+
+.chat-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  color: #e5e7eb;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  transition: background-color 0.2s;
+}
+
+.chat-menu-item:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.chat-menu-item svg {
+  flex-shrink: 0;
+}
+
+.chat-menu-item-danger {
+  color: #ef4444;
+}
+
+.chat-menu-item-danger:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+.chat-history-empty {
+  padding: 20px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 14px;
+}

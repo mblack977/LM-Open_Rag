@@ -15,6 +15,18 @@ class ProviderSettings:
     embedding_api_key: Optional[str] = None
     embedding_base_url: Optional[str] = None
 
+    # Fast LLM (small/quick model for simple queries)
+    fast_model: Optional[str] = None
+    fast_base_url: Optional[str] = None
+    fast_api_key: Optional[str] = None
+    fast_timeout: float = 60.0
+
+    # Large LLM (reasoning model for complex queries)
+    large_model: Optional[str] = None
+    large_base_url: Optional[str] = None
+    large_api_key: Optional[str] = None
+    large_timeout: float = 300.0
+
 
 def load_from_env() -> "ProviderSettings":
     # Detect embedding provider from env
@@ -86,6 +98,18 @@ def load_from_env() -> "ProviderSettings":
         embedding_api_key = None
         embedding_base_url = None
 
+    # Fast LLM — defaults to chat LLM if not separately configured
+    fast_model = os.getenv("FAST_LLM_MODEL") or chat_model
+    fast_base_url = os.getenv("FAST_LLM_BASE_URL") or chat_base_url
+    fast_api_key = os.getenv("FAST_LLM_API_KEY") or chat_api_key
+    fast_timeout = float(os.getenv("FAST_LLM_TIMEOUT_SECONDS") or "60")
+
+    # Large LLM — defaults to chat LLM if not separately configured
+    large_model = os.getenv("LARGE_LLM_MODEL") or chat_model
+    large_base_url = os.getenv("LARGE_LLM_BASE_URL") or chat_base_url
+    large_api_key = os.getenv("LARGE_LLM_API_KEY") or chat_api_key
+    large_timeout = float(os.getenv("LARGE_LLM_TIMEOUT_SECONDS") or "300")
+
     return ProviderSettings(
         chat_provider=chat_provider,
         chat_model=chat_model,
@@ -95,6 +119,14 @@ def load_from_env() -> "ProviderSettings":
         embedding_model=embedding_model,
         embedding_api_key=embedding_api_key,
         embedding_base_url=embedding_base_url,
+        fast_model=fast_model,
+        fast_base_url=fast_base_url,
+        fast_api_key=fast_api_key,
+        fast_timeout=fast_timeout,
+        large_model=large_model,
+        large_base_url=large_base_url,
+        large_api_key=large_api_key,
+        large_timeout=large_timeout,
     )
 
 

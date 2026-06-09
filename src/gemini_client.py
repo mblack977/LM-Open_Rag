@@ -14,7 +14,7 @@ class GeminiClient:
             )
 
     async def chat(
-        self, messages: List[Dict[str, str]], temperature: float = 0.2, max_tokens: int = 800
+        self, messages: List[Dict[str, str]], temperature: float = 0.2, max_tokens: int = 2000
     ) -> str:
         return await asyncio.to_thread(self._chat_sync, messages, temperature, max_tokens)
 
